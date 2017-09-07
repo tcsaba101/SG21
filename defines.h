@@ -25,8 +25,8 @@
 #define _DEFINES_H
 
 #if !defined(ARDUINO) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
-  #define TMP_BUFFER_SIZE      255   // scratch buffer size
-  #define POST_BUFFER_SIZE	1000 //post message buffer
+  #define TMP_BUFFER_SIZE      	255   	// scratch buffer size
+  #define POST_BUFFER_SIZE	 	1000 	// http POST message buffer
 #else
   #define TMP_BUFFER_SIZE      128   // scratch buffer size
 #endif
@@ -38,15 +38,15 @@
 
 #define OS_FW_MINOR      0  // Firmware minor version
 
-// SMART GARDEN version identifier
-#define OS_SGHW_VERSION		20	// SB2 sensor attachment: ACS712 current, 2 soil, 1 flow, 1 rain + program switch inputs
+// SMART GREEN version identifier
+#define OS_SGHW_VERSION		20	// SB2 sensor attachment: ACS712 current, inputs: 2 soil, 1 flow, 1 rain + program switch
 #define OS_SGFW_VERSION 	21	// SG Firmware version
 
 #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
 /*
 */	#define SRDATA_PIN23_D7		//uncomment if SR_DATA relocated to MCUpin23 (LCD D7), comment when it is connected to MCUpin 21 (LCD D5)
-	#define DEBUG_JTAG_ICE		//must use pin23 and should be uncommented for JTAG debugging see more at line 387	
-	#define SERIAL_DEBUG		//uncomment for reading debug prints see also at line 435
+	#define DEBUG_JTAG_ICE		//must use pin23 and should be uncommented for JTAG debugging, see more at line 390	
+	#define SERIAL_DEBUG		//uncomment for debug prints see also at line 449
 	
 #endif
 
@@ -70,7 +70,7 @@
 #define IFTTT_KEY_FILENAME "ifkey.txt"
 #define IFTTT_KEY_MAXSIZE   128
 
-#define FLOWCOUNT_RT_WINDOW   30    // flow count window (for computing real-time flow rate), 30 seconds
+#define FLOWCOUNT_RT_WINDOW   15    // flow count window (for computing real-time flow rate), 30 seconds
 
 /** Station type macro defines */
 #define STN_TYPE_STANDARD    0x00
@@ -89,9 +89,17 @@
 
 /** Sensor type macro defines */
 #define SENSOR_TYPE_NONE    0x00
-#define SENSOR_TYPE_RAIN    0x01  // rain sensor
-#define SENSOR_TYPE_FLOW    0x02  // flow sensor
+	// rainsensor/program switch input
+//#define SENSOR_TYPE_RAIN   0x01  // rain sensor
+#define SENSOR_TYPE_RAIN    0x02  // cheat rain sensor till UI can handle
 #define SENSOR_TYPE_PSWITCH 0xF0  // program switch
+	//flow sensor input
+#define SENSOR_TYPE_FLOW    0x01  // flow sensor
+	// soil sensor inputs
+#define SENSOR_TYPE_SOILDIG		0x01  // soil sensor digital
+#define SENSOR_TYPE_SOILAN1		0x02  // soil sensor analogue Vegetronix fitted
+#define SENSOR_TYPE_SOILAN2		0x02  // soil sensor analogue Other linear
+	
 #define SENSOR_TYPE_OTHER   0xFF
 
 /** Non-volatile memory (NVM) defines */
@@ -106,6 +114,9 @@
   */
 
 /** 4KB NVM (ATmega1284) data structure:
+*******
+********** in SGxx the CHANGED NVM structure see Tables_SG_20_vxx.xls file
+******
   * |         |     |  ---STRING PARAMETERS---      |           |   ----STATION ATTRIBUTES-----      |          |
   * | PROGRAM | CON | PWD | LOC | JURL | WURL | KEY | STN_NAMES | MAS | IGR | MAS2 | DIS | SEQ | SPE | OPTIONS  |
   * |  (2433) |(12) |(36) |(48) | (48) | (48) |(24) |   (1344)  | (7) | (7) |  (7) | (7) | (7) | (7) |   (61)   |
@@ -153,7 +164,7 @@
   // But they can be increased if needed
   #define NVM_FILENAME        "nvm.dat" // for RPI/BBB, nvm data is stored in a file
 
-  #define MAX_EXT_BOARDS    6  // maximum number of exp. boards (each expands 8 stations)
+  #define MAX_EXT_BOARDS    5  // maximum number of exp. boards (each expands 8 stations)
   #define MAX_NUM_STATIONS  ((1+MAX_EXT_BOARDS)*8)  // maximum number of stations
 
   #define NVM_SIZE            4096
@@ -176,6 +187,7 @@
 #define ADDR_NVM_LOCATION      (ADDR_NVM_PASSWORD+MAX_USER_PASSWORD)
 #define ADDR_NVM_JAVASCRIPTURL (ADDR_NVM_LOCATION+MAX_LOCATION)
 #define ADDR_NVM_WEATHERURL    (ADDR_NVM_JAVASCRIPTURL+MAX_JAVASCRIPTURL)
+#define ADDR_NVM_CLOUDURL      (ADDR_NVM_JAVASCRIPTURL+MAX_CLOUDURL)
 #define ADDR_NVM_WEATHER_KEY   (ADDR_NVM_WEATHERURL+MAX_WEATHERURL)
 #define ADDR_NVM_STN_NAMES     (ADDR_NVM_WEATHER_KEY+MAX_WEATHER_KEY)
 #define ADDR_NVM_MAS_OP        (ADDR_NVM_STN_NAMES+MAX_NUM_STATIONS*STATION_NAME_SIZE) // master op bits
@@ -184,81 +196,166 @@
 #define ADDR_NVM_STNDISABLE    (ADDR_NVM_MAS_OP_2+(MAX_EXT_BOARDS+1))// station disable bits
 #define ADDR_NVM_STNSEQ        (ADDR_NVM_STNDISABLE+(MAX_EXT_BOARDS+1))// station sequential bits
 #define ADDR_NVM_STNSPE        (ADDR_NVM_STNSEQ+(MAX_EXT_BOARDS+1)) // station special bits (i.e. non-standard stations)
-#define ADDR_NVM_OPTIONS       (ADDR_NVM_STNSPE+(MAX_EXT_BOARDS+1))  // options
+// soil sensors data
+#define ADDR_NVM_SSENSOR_1     (ADDR_NVM_STNSPE+(MAX_EXT_BOARDS+1))		// station attach soil_sensor_1 bits
+#define ADDR_NVM_SSENSOR_2     (ADDR_NVM_SSENSOR_1+(MAX_EXT_BOARDS+1))	// station attach soil_sensor_2 bits
+// flow 
+#define ADDR_NVM_ST_EXCLUDE_AL (ADDR_NVM_SSENSOR_2+(MAX_EXT_BOARDS+1)) // station exclude of alarm handling
+#define ADDR_NVM_ALARM_FATAL   (ADDR_NVM_ST_EXCLUDE_AL+(MAX_EXT_BOARDS+1)) // station disable in case of fatal alarm
+#define ADDR_NVM_FLOW_REFS     (ADDR_NVM_ALARM_FATAL+(MAX_EXT_BOARDS+1)) // Station flow reference 2byte LSB: 0,125 gallon/minute
+#define ADDR_NVM_CURR_REFS     (ADDR_NVM_FLOW_REFS+(MAX_NUM_STATIONS)*2) // station current reference 1 byte LSB: 4mA
+#define ADDR_NVM_IMPULSES	   (ADDR_NVM_CURR_REFS+(MAX_NUM_STATIONS))  // 0:last_prog_impulses, 2:day_impulses, 4:last_day_impulses each 2 bytes
+#define ADDR_NVM_OPTIONS       (ADDR_NVM_IMPULSES+6)  // options
 
 /** Default password, location string, weather key, script urls */
 #define DEFAULT_PASSWORD          "a6d82bced638de3def1e9bbb4983225c"  // md5 of 'opendoor'
-#define DEFAULT_LOCATION          "Boston,MA"
+#define DEFAULT_LOCATION          "Budapest"
 #define DEFAULT_WEATHER_KEY       ""
 #define DEFAULT_JAVASCRIPT_URL    "https://ui.opensprinkler.com/js"
 #define DEFAULT_WEATHER_URL       "weather.opensprinkler.com"
+#define DEFAULT_CLOUD_URL         "client.sandz.hu"   //"http://client.sandz.hu/sr"
 #define DEFAULT_IFTTT_URL         "maker.ifttt.com"
 
 /** Macro define of each option
   * Refer to OpenSprinkler.cpp for details on each option
   */
 typedef enum {
-  OPTION_FW_VERSION = 0,
-  OPTION_TIMEZONE,
-  OPTION_USE_NTP,
-  OPTION_USE_DHCP,
-  OPTION_STATIC_IP1,
-  OPTION_STATIC_IP2,
-  OPTION_STATIC_IP3,
-  OPTION_STATIC_IP4,
-  OPTION_GATEWAY_IP1,
-  OPTION_GATEWAY_IP2,
-  OPTION_GATEWAY_IP3,
-  OPTION_GATEWAY_IP4,
-  OPTION_HTTPPORT_0,
-  OPTION_HTTPPORT_1,
-  OPTION_HW_VERSION,
-  OPTION_EXT_BOARDS,
-  OPTION_SEQUENTIAL_RETIRED,
-  OPTION_STATION_DELAY_TIME,
-  OPTION_MASTER_STATION,
-  OPTION_MASTER_ON_ADJ,
-  OPTION_MASTER_OFF_ADJ,
-  OPTION_SENSOR_TYPE,
-  OPTION_RAINSENSOR_TYPE,
-  OPTION_WATER_PERCENTAGE,
-  OPTION_DEVICE_ENABLE,
-  OPTION_IGNORE_PASSWORD,
-  OPTION_DEVICE_ID,
-  OPTION_LCD_CONTRAST,
-  OPTION_LCD_BACKLIGHT,
-  OPTION_LCD_DIMMING,
-  OPTION_BOOST_TIME,
-  OPTION_USE_WEATHER,
-  OPTION_NTP_IP1,
-  OPTION_NTP_IP2,
-  OPTION_NTP_IP3,
-  OPTION_NTP_IP4,
-  OPTION_ENABLE_LOGGING,
-  OPTION_MASTER_STATION_2,
-  OPTION_MASTER_ON_ADJ_2,
-  OPTION_MASTER_OFF_ADJ_2,
-  OPTION_FW_MINOR,
-  OPTION_PULSE_RATE_0,
-  OPTION_PULSE_RATE_1,
-  OPTION_REMOTE_EXT_MODE,
-  OPTION_DNS_IP1,
-  OPTION_DNS_IP2,
-  OPTION_DNS_IP3,
-  OPTION_DNS_IP4,
-  OPTION_SPE_AUTO_REFRESH,
-  OPTION_IFTTT_ENABLE,
-  OPTION_RESET,
-  NUM_OPTIONS	// total number of options
+OPTION_FW_VERSION = 0,
+OPTION_TIMEZONE,
+OPTION_USE_NTP,
+OPTION_USE_DHCP,
+OPTION_STATIC_IP1,
+OPTION_STATIC_IP2,
+OPTION_STATIC_IP3,
+OPTION_STATIC_IP4,
+OPTION_GATEWAY_IP1,
+OPTION_GATEWAY_IP2,
+OPTION_GATEWAY_IP3,
+OPTION_GATEWAY_IP4,
+OPTION_HTTPPORT_0,
+OPTION_HTTPPORT_1,
+OPTION_HW_VERSION,
+OPTION_EXT_BOARDS,
+OPTION_SEQUENTIAL_RETIRED,
+OPTION_STATION_DELAY_TIME,
+OPTION_MASTER_STATION,
+OPTION_MASTER_ON_ADJ,
+OPTION_MASTER_OFF_ADJ,
+OPTION_RSENSOR_TYPE,
+OPTION_RAINSENSOR_TYPE,
+OPTION_WATER_PERCENTAGE,
+OPTION_DEVICE_ENABLE,
+OPTION_IGNORE_PASSWORD,
+OPTION_DEVICE_ID,
+OPTION_LCD_CONTRAST,
+OPTION_LCD_BACKLIGHT,
+OPTION_LCD_DIMMING,
+OPTION_BOOST_TIME,
+OPTION_USE_WEATHER,
+OPTION_NTP_IP1,
+OPTION_NTP_IP2,
+OPTION_NTP_IP3,
+OPTION_NTP_IP4,
+OPTION_ENABLE_LOGGING,
+OPTION_MASTER_STATION_2,
+OPTION_MASTER_ON_ADJ_2,
+OPTION_MASTER_OFF_ADJ_2,
+OPTION_FW_MINOR,
+OPTION_PULSE_RATE_0,
+OPTION_PULSE_RATE_1,
+OPTION_REMOTE_EXT_MODE,
+OPTION_DNS_IP1,
+OPTION_DNS_IP2,
+OPTION_DNS_IP3,
+OPTION_DNS_IP4,
+OPTION_SPE_AUTO_REFRESH,
+OPTION_IFTTT_ENABLE,
+//new options in SGxx version see Tables_SG_20_vxx file for details
+OPTION_FSENSOR_TYPE,
+OPTION_FLOWUNIT_GAL,
+OPTION_FLOW_ALARM,
+OPTION_FLOW_ALARM_RANGE,
+OPTION_FREEFLOW_QUANTITY,
+OPTION_FREEFLOW_TIME,
+OPTION_SSENSOR_1,
+OPTION_SOILSENSOR1_TYPE,
+OPTION_SSENSOR_2,
+OPTION_SOILSENSOR2_TYPE,
+OPTION_CURRENT,
+OPTION_CURR_ALARM,
+OPTION_CURR_RANGE,
+OPTION_CAL_REQUEST,
+OPTION_SEND_LOGFILES,
+OPTION_FATAL_ALARM,
+OPTION_SGHW_VERSION,
+OPTION_SGFW_VERSION,
+OPTION_CLIENT_MODE,
+OPTION_CLOUDREFRESH_DEF,
+OPTION_CLOUDREFRESH_FAST,
+OPTION_STATUS_REPORT,
+OPTION_FLASH_MEMORY,
+OPTION_LCD_SIZE,
+OPTION_LANGUAGE_LCD,
+OPTION_RESET,
+NUM_OPTIONS	// total number of options
 } OS_OPTION_t;
 
-/** Log Data Type */
-#define LOGDATA_STATION    0x00
-#define LOGDATA_RAINSENSE  0x01
-#define LOGDATA_RAINDELAY  0x02
-#define LOGDATA_WATERLEVEL 0x03
-#define LOGDATA_FLOWSENSE  0x04
+/** Cloud Message Type */
+#define SEND_CLOUD_OPTIONS		0
+#define SEND_CLOUD_SETTINGS		1
+#define SEND_CLOUD_PROGRAMS		2
+#define SEND_CLOUD_STATIONS		3
+#define SEND_CLOUD_STATUS_SPEC	4
+#define SEND_CLOUD_LOG			5
 
+
+/** Log Data Type */
+//Classic
+#define LOGDATA_STATION					0x00
+#define LOGDATA_RAINSENSE				0x01
+#define LOGDATA_RAINDELAY				0x02
+#define LOGDATA_WATERLEVEL				0x03
+#define LOGDATA_PROGFLOW				0x04  //was LOGDATA_FLOWSENSE
+
+//Smart
+#define LOGDATA_RAINSENSE2				0x05
+#define LOGDATA_RAINDELAY2				0x06
+#define LOGDATA_PROGFLOW2				0x07
+#define LOGDATA_DAYFLOW					0x08
+#define LOGDATA_CALIBRATED				0x09  // a zone has been calibrated
+
+#define LOGDATA_FREEFLOW_END			0x0A  // freeflow ended
+
+// soil log options
+#define LOGDATA_SOIL1					0x30
+#define LOGDATA_SOIL2					0x31
+#define LOGDATA_SOIL1_PROG_CANCEL		0x32
+#define LOGDATA_SOIL2_PROG_CANCEL		0x33
+#define LOGDATA_SOIL1_STATION_CANCEL	0x34
+#define LOGDATA_SOIL2_STATION_CANCEL	0x35
+
+//flow and rain station cancel log options
+#define LOGDATA_FATAL_STATION_CANCEL	0x36
+#define LOGDATA_RAIN_STATION_CANCEL		0x37
+
+// alert log data types
+#define LOGDATA_ALARM_FLOW_STOPPED		0x10
+#define LOGDATA_ALARM_FF_QUANTITY		0x11
+#define LOGDATA_ALARM_FF_TIME			0x12
+#define LOGDATA_ALARM_LEAKAGE_START		0x13
+#define LOGDATA_ALARM_LEAKAGE_END		0x14
+//flow alarms
+#define LOGDATA_ALARM_FLOW_HIGH			0x15
+#define LOGDATA_ALARM_FLOW_LOW			0x16
+#define LOGDATA_ALARM_FATAL_FLOW		0x17
+//station current alarms
+#define LOGDATA_ALARM_CURRENT_HIGH		0x18
+#define LOGDATA_ALARM_CURRENT_LOW		0x19
+
+//Admin log
+#define LOGDATA_FAILED_STATE			0x20
+	
+	
 #undef OS_HW_VERSION
 
 /** Hardware defines */
@@ -285,17 +382,39 @@ typedef enum {
   #define PORT_RF        PORTA
   #define PINX_RF        PINA3
   #define PIN_SR_LATCH       3    // shift register latch pin
-  #define PIN_SR_DATA       21    // shift register data pin
   #define PIN_SR_CLOCK      22    // shift register clock pin
   #define PIN_SR_OE          1    // shift register output enable pin
 
   // regular 16x2 LCD pin defines
-  #define PIN_LCD_RS        19    // LCD rs pin
+  // JTAG development needs the pins: 18,19,20,21
+  // On the PCB the SR_DATA have to cut and reconnect to pin 23 (LCD_D7) It will work normally with this definition
+  // We have to change the LCD display to an I2C model to use JTAG development
+  // just connect and the OS identify it automatically  
+
+#if defined(DEBUG_JTAG_ICE)
+  #define PIN_SR_DATA       23    // shift register data pin when JTAG-ICE is used, it has to be hacked on the pcb
+  #define PIN_LCD_EN        22    // dummy definition on an unused pin
+  #define PIN_LCD_RS        22    // dummy definition on an unused pin
+  #define PIN_LCD_D4        22    // dummy definition on an unused pin
+  #define PIN_LCD_D5        22    // dummy definition on an unused pin
+  #define PIN_LCD_D6        22    // dummy definition on an unused pin
+  #define PIN_LCD_D7        22    // dummy definition on an unused pin
+#else
+  // LCD and shift register pins normal operation
+  #define PIN_SR_DATA       21    // shift register data pin normal operation
+	
+#if defined(SRDATA_PIN23_D7) 
+  #define PIN_SR_DATA       23    // shift register data pin hacked
+#endif
+	
   #define PIN_LCD_EN        18    // LCD enable pin
+  #define PIN_LCD_RS        19    // LCD rs pin
   #define PIN_LCD_D4        20    // LCD d4 pin
   #define PIN_LCD_D5        21    // LCD d5 pin
   #define PIN_LCD_D6        22    // LCD d6 pin
   #define PIN_LCD_D7        23    // LCD d7 pin
+#endif
+	
   #define PIN_LCD_BACKLIGHT 12    // LCD backlight pin
   #define PIN_LCD_CONTRAST  13    // LCD contrast pin
 
@@ -305,13 +424,15 @@ typedef enum {
 
   #define PIN_ETHER_CS       4    // Ethernet controller chip select pin
   #define PIN_SD_CS          0    // SD card chip select pin
-  #define PIN_RAINSENSOR    11    // rain sensor is connected to pin D3
-  #define PIN_FLOWSENSOR    11    // flow sensor (currently shared with rain sensor, change if using a different pin)
+
+  #define PIN_RAINSENSOR    2    // rain sensor/programswitch input is connected to pin D3/INT2
+  #define PIN_FLOWSENSOR     11    // flow sensor (INT1)
   #define PIN_FLOWSENSOR_INT 1    // flow sensor interrupt pin (INT1)
   #define PIN_EXP_SENSE      4    // expansion board sensing pin (A4)
-  #define PIN_CURR_SENSE     7    // current sensing pin (A7)
-  #define PIN_CURR_DIGITAL  24    // digital pin index for A7
-
+  #define PIN_CURR_SENSE     6    // current sensing pin (A6)
+  #define PIN_CURR_DIGITAL  25    // digital pin index for A6
+  #define PIN_SOILSENSOR_1	24	  // digital SoilSensor 1 (A7)
+  #define PIN_SOILSENSOR_2	26	  // digital SoilSensor 2 (A5)
   // Ethernet buffer size
   #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
     #define ETHER_BUFFER_SIZE   1400 // ATmega1284 has 16K RAM, so use a bigger buffer
@@ -321,7 +442,7 @@ typedef enum {
 
   #define 	wdt_reset()   __asm__ __volatile__ ("wdr")  // watchdog timer reset
 
-  //#define SERIAL_DEBUG
+  //#define SERIAL_DEBUG  it is relocated to line 53
   #if defined(SERIAL_DEBUG) /** Serial debug functions */
 
     #define DEBUG_BEGIN(x)   Serial.begin(x)
