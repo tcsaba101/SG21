@@ -26,6 +26,7 @@
 
 #if !defined(ARDUINO) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
   #define TMP_BUFFER_SIZE      255   // scratch buffer size
+  #define POST_BUFFER_SIZE	1000 //post message buffer
 #else
   #define TMP_BUFFER_SIZE      128   // scratch buffer size
 #endif
@@ -36,6 +37,19 @@
                             // a device reset will be automatically triggered
 
 #define OS_FW_MINOR      0  // Firmware minor version
+
+// SMART GARDEN version identifier
+#define OS_SGHW_VERSION		20	// SB2 sensor attachment: ACS712 current, 2 soil, 1 flow, 1 rain + program switch inputs
+#define OS_SGFW_VERSION 	21	// SG Firmware version
+
+#if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
+/*
+*/	#define SRDATA_PIN23_D7		//uncomment if SR_DATA relocated to MCUpin23 (LCD D7), comment when it is connected to MCUpin 21 (LCD D5)
+	#define DEBUG_JTAG_ICE		//must use pin23 and should be uncommented for JTAG debugging see more at line 387	
+	#define SERIAL_DEBUG		//uncomment for reading debug prints see also at line 435
+	
+#endif
+
 
 /** Hardware version base numbers */
 #define OS_HW_VERSION_BASE   0x00
