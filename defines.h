@@ -91,7 +91,7 @@
 #define SENSOR_TYPE_NONE    0x00
 	// rainsensor/program switch input
 //#define SENSOR_TYPE_RAIN   0x01  // rain sensor
-#define SENSOR_TYPE_RAIN    0x02  // cheat rain sensor till UI can handle
+#define SENSOR_TYPE_RAIN    0x02  // cheat UI to sense flow sensor till UI upgrade
 #define SENSOR_TYPE_PSWITCH 0xF0  // program switch
 	//flow sensor input
 #define SENSOR_TYPE_FLOW    0x01  // flow sensor

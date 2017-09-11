@@ -20,6 +20,7 @@
  * along with this program.  If not, see
  * <http://www.gnu.org/licenses/>.
  */
+ 
 #if not defined(ARDUINO)
 #include <netdb.h>
 #endif
@@ -40,10 +41,12 @@ byte OpenSprinkler::station_bits[MAX_EXT_BOARDS+1];
 byte OpenSprinkler::engage_booster;
 #endif
 
+//@tcsaba: additional variables
+ulong OpenSprinkler::s1sensor_lasttime;
+ulong OpenSprinkler::s2sensor_lasttime;
+uint16_t OpenSprinkler::current_offset;
+
 ulong OpenSprinkler::sensor_lasttime;
-ulong OpenSprinkler::flowcount_log_start;
-ulong OpenSprinkler::flowcount_rt;
-ulong OpenSprinkler::flowcount_time_ms;
 ulong OpenSprinkler::raindelay_start_time;
 byte OpenSprinkler::button_timeout;
 ulong OpenSprinkler::checkwt_lasttime;
@@ -133,6 +136,31 @@ const char op_json_names[] =
     "dns4\0"
     "sar\0\0"
     "ife\0\0"
+	"ufs\0\0"  // @tcsaba: new options see at Tables_SG_21_xxx file
+	"ufl\0\0"
+	"ufa\0\0"
+	"ufr\0\0"
+	"ufg\0\0"
+	"ufm\0\0"
+	"us1\0\0"
+	"ud1\0\0"
+	"us2\0\0"
+	"ud2\0\0"
+	"csi\0\0"
+	"csa\0\0"
+	"ucr\0\0"
+	"sca\0\0"
+	"scc\0\0"
+	"fad\0\0"
+	"hws\0\0"
+	"fws\0\0"
+	"cma\0\0"
+	"cfd\0\0"
+	"cff\0\0"
+	"urt\0\0"
+	"fms\0\0"
+	"lns\0\0"
+	"lng\0\0"
     "reset";
 
 /** Option promopts (stored in progmem, for LCD display) */
@@ -165,7 +193,7 @@ char op_promopts[] =
     "Mas1  on adjust:"
     "Mas1 off adjust:"
     "Sensor type:    "
-    "Normally open?  "
+	"Open Enable(NO)?"
     "Watering level: "
     "Device enabled? "
     "Ignore password?"
@@ -193,6 +221,31 @@ char op_promopts[] =
     "DNS server.ip4: "
     "Special Refresh?"
     "IFTTT Enable: "
+	"FlowSensor:     "   //@tcsaba: new options
+	"UnitGallon?     "
+	"FlowAlarmType   "
+	"FlowRange%      "
+	"FreeFlow gal    "
+	"FreeFow min     "
+	"SoilSensor1:    "
+	"Open Enable(NO)?"
+	"SoilSensor2:    "
+	"Open Enable(NO)?"
+	"Current Sensor? "
+	"Current Alarm?  "
+	"CurrAlarmRange %"
+	"StartCalibration"
+	"SendLogDays     "
+	"FatalDisableStat"
+	"SGHW version:   "
+	"SGFW version:   "
+	"Client mode?    "
+	"CloudRefresh (s)"
+	"Fast Refresh (s)"
+	"StatusReportType"
+	"FlashMemoryType?"
+	"LCD size 20x4?  "
+	"Language HUN?   "	// 1: hun / 0: english
     "Factory reset?  ";
 
 /** Option maximum values (stored in progmem) */
@@ -223,7 +276,7 @@ const char op_max[] = {
   255,
   255,
   255,
-  1,
+  2,	// Rain sensor input test value to cheat UI features
   250,
   1,
   1,
@@ -251,6 +304,32 @@ const char op_max[] = {
   255,
   1,
   255,
+  //@tcsaba: new options
+	2,		//Flow Sensor enable
+	1,		
+	2,
+	100,	//Flow Alarm range
+	255,
+	255,
+	2,		//Soil_1 enable
+	1,
+	2,		//Soil_2 enable
+	1,
+	2,		//Current Sensor enable
+	2,		//cURRENT aLARM	
+	100,	//current range
+	1,		//cal request
+	255,	//send logfiles
+	2,		//Fatal Flow
+	255,
+	255,
+	1,
+	255,
+	255,
+	2,
+	3,
+	1,
+	1,
   1
 };
 
@@ -282,13 +361,13 @@ byte OpenSprinkler::options[] = {
   0,  // index of master station. 0: no master station
   120,// master on time adjusted time (-10 minutes to 10 minutes)
   120,// master off adjusted time (-10 minutes to 10 minutes)
-  0,  // sensor function (see SENSOR_TYPE macro defines)
-  0,  // rain sensor type. 0: normally closed; 1: normally open.
+	2,	// @tcsaba: sensor function (see SENSOR_TYPE macro defines) Rain type changed to 2 to cheat UI
+	1,	// @tcsaba: rain sensor type. 0: normally closed; 1: normally open.
   100,// water level (default 100%),
   1,  // device enable
   0,  // 1: ignore password; 0: use password
   0,  // device id
-  150,// lcd contrast
+  100,// lcd contrast
   100,// lcd backlight
   50, // lcd dimming
   80, // boost time (only valid to DC and LATCH type)
@@ -311,6 +390,31 @@ byte OpenSprinkler::options[] = {
   8,
   0,  // special station auto refresh
   0,  // ifttt enable bits
+	1,			// 1: Flow Sensor connected
+	0,			// LCD Flow display unit: 0: liter, 1: gallon
+	2,			// Flow Alarm 0:no, 1:Station, 2: Freeflow enabled
+	25,			// Flow Operating range +- from alarm reference (%)
+	25,			// Max fleeflow quantity in gallon
+	10,			// Max freeflow running time in minutes
+	1,			//SG version soil sensor1 Option
+	0,			//Digital soil sensor type NC/NO
+	1,			//SG version soil sensor2 Option
+	0,			//Digital soil sensor type NC/NO
+	1,			//Current sensor in operation
+	1,			//Current alarm active
+	25,			//current operating range +- from alarm reference
+	0,			//Calibration Start request: 1=Yes, 0 = No
+	0,			//Number of Logfiles to send to Cloud: 0:only today, number of days incl today
+	0,			//Fatal flow		
+	OS_SGHW_VERSION,	//Smart Garden hardware Version
+	OS_SGFW_VERSION,	//Smart Garden Firmware Version
+	0,			//1: Client mode activated
+	60,			//Default cloud refresh time sec
+	10,			//Fast refresh time for manual operation sec
+	0,			//StatusReport 0:No, 1:General, 2:Detailed
+	1,			//0:NoFlash, 1: UseSD, 2:Flash128Mb
+	0,			//LCD display 0:16x2; 1:20x4
+	0,			//Language selection for LCD display 0:en, 1:hun
   0   // reset
 };
 
@@ -368,7 +472,10 @@ byte OpenSprinkler::start_network() {
     tmp_buffer[3] = 0x2D;
     tmp_buffer[4] = 0x31;
     tmp_buffer[5] = options[OPTION_DEVICE_ID];
-  } else {
+
+	
+  } 
+  else {
     // has hardware MAC chip
     status.has_hwmac = 1;
   }
@@ -470,7 +577,6 @@ void OpenSprinkler::lcd_start() {
 }
 #endif
 
-extern void flow_isr();
 /** Initialize pins, controller variables, LCD */
 void OpenSprinkler::begin() {
 
@@ -502,19 +608,19 @@ void OpenSprinkler::begin() {
   // pull shift register OE low to enable output
   digitalWrite(PIN_SR_OE, LOW);
 
-  // Rain sensor port set up
+	// Sensor ports set up
   pinMode(PIN_RAINSENSOR, INPUT);
+	pinMode(PIN_FLOWSENSOR, INPUT);
+	pinMode(PIN_SOILSENSOR_1, INPUT);
+	pinMode(PIN_SOILSENSOR_2, INPUT);
+	digitalWrite(PIN_RAINSENSOR, HIGH);
+	digitalWrite(PIN_FLOWSENSOR, HIGH);
+	digitalWrite(PIN_SOILSENSOR_1, HIGH);
+	digitalWrite(PIN_SOILSENSOR_2, HIGH);
 
-  // Set up sensors
-#if defined(ARDUINO)
-  digitalWrite(PIN_RAINSENSOR, HIGH); // enabled internal pullup on rain sensor
-  attachInterrupt(PIN_FLOWSENSOR_INT, flow_isr, FALLING);
-#else
-  // OSPI and OSBO use external pullups
-  attachInterrupt(PIN_FLOWSENSOR, "falling", flow_isr);
-#endif
-
-
+	//AREF set to external 2,5V reference
+	//The auto expansion board detection will not work with the 2,5V external reference 
+	analogReference(INTERNAL2V56);
 
   // Default controller status variables
   // Static variables are assigned 0 by default
@@ -568,7 +674,8 @@ void OpenSprinkler::begin() {
     // detect if current sensing pin is present
     pinMode(PIN_CURR_DIGITAL, INPUT);
     digitalWrite(PIN_CURR_DIGITAL, HIGH); // enable internal pullup
-    status.has_curr_sense = digitalRead(PIN_CURR_DIGITAL) ? 0 : 1;
+		//@tcsaba: current enable is read from the OPTIONS table
+	status.has_curr_sense = options[OPTION_CURRENT]; //(digitalRead(PIN_CURR_DIGITAL) ? 0 : 1);
     digitalWrite(PIN_CURR_DIGITAL, LOW);
   #endif
 
@@ -638,16 +745,16 @@ void OpenSprinkler::begin() {
   _icon[7] = B00000;
   lcd.createChar(6, _icon);
 
-  // Program switch icon
-  _icon[1] = B11100;
-  _icon[2] = B10100;
-  _icon[3] = B11100;
-  _icon[4] = B10010;
-  _icon[5] = B10110;
-  _icon[6] = B00010;
-  _icon[7] = B00111;
-  lcd.createChar(7, _icon);  
-
+	// Program switch icon is switched to soil sensor icon
+	// Soil sensor icon
+	_icon[1] = B00000;
+	_icon[2] = B10101;
+	_icon[3] = B10101;
+	_icon[4] = B10101;
+	_icon[5] = B00000;
+	_icon[6] = B11111;
+	_icon[7] = B11111;
+	lcd.createChar(7, _icon);
   // set sd cs pin high to release SD
   pinMode(PIN_SD_CS, OUTPUT);
   digitalWrite(PIN_SD_CS, HIGH);
@@ -659,6 +766,9 @@ void OpenSprinkler::begin() {
   #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
   if(!status.has_sd) {
     lcd.setCursor(0, 0);
+	//@tcsaba: prints the error 
+	lcd_print_pgm(PSTR("SD card missing"));
+	lcd.setCursor(0, 1);
     lcd_print_pgm(PSTR("Error Code: 0x2D"));
     while(1){}
   }
@@ -743,13 +853,26 @@ void OpenSprinkler::apply_all_station_bits() {
 /** Read rain sensor status */
 void OpenSprinkler::rainsensor_status() {
   // options[OPTION_RS_TYPE]: 0 if normally closed, 1 if normally open
-  if(options[OPTION_SENSOR_TYPE]!=SENSOR_TYPE_RAIN) return;
+  if(options[OPTION_RSENSOR_TYPE]!=SENSOR_TYPE_RAIN) return;
   status.rain_sensed = (digitalRead(PIN_RAINSENSOR) == options[OPTION_RAINSENSOR_TYPE] ? 0 : 1);
 }
 
+/** Read soil sensor status */
+void OpenSprinkler::soilsensor_status() {
+
+	if (options[OPTION_SSENSOR_1] != SENSOR_TYPE_NONE) {
+		status.dry_soil_1 = (digitalRead(PIN_SOILSENSOR_1) == options[OPTION_SOILSENSOR1_TYPE] ? 0 : 1);
+	}
+
+	if (options[OPTION_SSENSOR_2] != SENSOR_TYPE_NONE) {
+		status.dry_soil_2 = (digitalRead(PIN_SOILSENSOR_2) == options[OPTION_SOILSENSOR2_TYPE] ? 0 : 1);
+	}
+}
+
+
 /** Return program switch status */
 bool OpenSprinkler::programswitch_status(ulong curr_time) {
-  if(options[OPTION_SENSOR_TYPE]!=SENSOR_TYPE_PSWITCH) return false;
+  if(options[OPTION_RSENSOR_TYPE]!=SENSOR_TYPE_PSWITCH) return false;
   static ulong keydown_time = 0;
   byte val = digitalRead(PIN_RAINSENSOR);
   if(!val && !keydown_time) keydown_time = curr_time;
@@ -769,11 +892,14 @@ bool OpenSprinkler::programswitch_status(ulong curr_time) {
  */
 #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
 uint16_t OpenSprinkler::read_current() {
+	uint16_t v = analogRead(PIN_CURR_SENSE);
   if(status.has_curr_sense) {
     if (hw_type == HW_TYPE_DC) {
-      return (uint16_t)(analogRead(PIN_CURR_SENSE) * 16.11);
+      return (uint16_t)(v * 16.11);
     } else {
-      return (uint16_t)(analogRead(PIN_CURR_SENSE) * 11.39);
+      			if (current_offset >= v) v=0;
+				else v -= current_offset;
+				return (uint16_t)( v * 1.42); //11.39
     }
   } else {
     return 0;
@@ -1271,8 +1397,8 @@ void OpenSprinkler::options_setup() {
     for(i=0;i<MAX_EXT_BOARDS+1;i++) {
       tmp_buffer[i]=0xff;
     }
-    nvm_write_block(tmp_buffer, (void*)ADDR_NVM_MAS_OP, MAX_EXT_BOARDS+1);
-    nvm_write_block(tmp_buffer, (void*)ADDR_NVM_STNSEQ, MAX_EXT_BOARDS+1);
+    nvm_write_block(tmp_buffer, (void*)ADDR_NVM_MAS_OP, MAX_EXT_BOARDS+1);//Master1 is set
+    nvm_write_block(tmp_buffer, (void*)ADDR_NVM_STNSEQ, MAX_EXT_BOARDS+1);//Sequential is set
 
     // 5. delete sd file
     remove_file(wtopts_filename);
@@ -1318,6 +1444,8 @@ void OpenSprinkler::options_setup() {
   	// if BUTTON_3 is pressed during startup, enter Setup option mode
     lcd_print_line_clear_pgm(PSTR("==Set Options=="), 0);
     delay(DISPLAY_MSG_MS);
+	lcd_set_contrast();		// to avoid the dimmed LCD in the setup cycle.
+	lcd_set_brightness();
     lcd_print_line_clear_pgm(PSTR("B1/B2:+/-, B3:->"), 0);
     lcd_print_line_clear_pgm(PSTR("Hold B3 to save"), 1);
     do {
@@ -1336,8 +1464,19 @@ void OpenSprinkler::options_setup() {
   lcd_set_contrast();
 
   if (!button) {
+	// @tcsaba: SG version start screen
     // flash screen
-    lcd_print_line_clear_pgm(PSTR(" OpenSprinkler"),0);
+	lcd_print_line_clear_pgm(PSTR(" "),0);
+	lcd.setCursor(0, 0);
+	lcd.print(" Fw:");
+	lcd.print(OS_SGFW_VERSION);
+	lcd.print(" Hw:");
+	lcd.print(OS_SGHW_VERSION);
+	lcd.setCursor(0, 1);
+	lcd.print("Base OSFw:v217");
+	
+	// Original OS starting LCD screen
+/*    lcd_print_line_clear_pgm(PSTR(" OpenSprinkler"),0);
     lcd.setCursor(2, 1);
     lcd_print_pgm(PSTR("HW v"));
     byte hwv = options[OPTION_HW_VERSION];
@@ -1354,7 +1493,8 @@ void OpenSprinkler::options_setup() {
     default:
       lcd_print_pgm(PSTR(" AC"));
     }
-    delay(1000);
+*/
+    delay(4000);
   }
 #endif
 }
@@ -1380,6 +1520,8 @@ void OpenSprinkler::options_load() {
   nstations = nboards * 8;
   status.enabled = options[OPTION_DEVICE_ENABLE];
   options[OPTION_FW_MINOR] = OS_FW_MINOR;
+
+	// @tcsaba: TODO: Load all the settings 
 }
 
 /** Save options to internal NVM */
@@ -1521,22 +1663,35 @@ void OpenSprinkler::lcd_print_station(byte line, char c) {
 	  }
 	}
 	lcd_print_pgm(PSTR("    "));
+	// @tcsaba: SD is a must from 2.1.7, there is no use to show, and we need the space for sensors
+	lcd.setCursor(11, 1);
+	if (options[OPTION_FSENSOR_TYPE] == SENSOR_TYPE_FLOW) lcd.write(6);
+
+	lcd.setCursor(12, 1);
+	//	if(options[OPTION_REMOTE_EXT_MODE]) lcd.write(5); //we need the space
+
+
+	if (options[OPTION_SSENSOR_2] != SENSOR_TYPE_NONE) lcd.print("S");
+	lcd.setCursor(12, 1);
+	if (status.dry_soil_2 && options[OPTION_SSENSOR_2] != SENSOR_TYPE_NONE)    lcd.write(7); //soil activated
+	
   lcd.setCursor(12, 1);
   if(options[OPTION_REMOTE_EXT_MODE]) {
     lcd.write(5);
   }
 	lcd.setCursor(13, 1);
-  if(status.rain_delayed || (status.rain_sensed && options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_RAIN))  {
+	if (options[OPTION_SSENSOR_1] != SENSOR_TYPE_NONE) lcd.print("s");
+	lcd.setCursor(13, 1);
+	if (status.dry_soil_1 && options[OPTION_SSENSOR_1] != SENSOR_TYPE_NONE)    lcd.write(7); //soil activated
+
+	lcd.setCursor(14, 1);
+	if (options[OPTION_RSENSOR_TYPE] == SENSOR_TYPE_RAIN) lcd.print("r");
+	lcd.setCursor(14, 1);
+	if (options[OPTION_RSENSOR_TYPE] == SENSOR_TYPE_PSWITCH) lcd.print("p");
+	lcd.setCursor(14, 1);
+  if(status.rain_delayed || (status.rain_sensed && options[OPTION_RSENSOR_TYPE]==SENSOR_TYPE_RAIN))  {
     lcd.write(3);
   }
-  if(options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_FLOW) {
-    lcd.write(6);
-  }
-  if(options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_PSWITCH) {
-    lcd.write(7);
-  }
-  lcd.setCursor(14, 1);
-  if (status.has_sd)  lcd.write(2);
 
 	lcd.setCursor(15, 1);
   lcd.write(status.network_fails>2?1:0);  // if network failure detection is more than 2, display disconnect icon
@@ -1571,6 +1726,13 @@ void OpenSprinkler::lcd_print_option(int i) {
   case OPTION_FW_VERSION:
     lcd_print_version(options[i]);
     break;
+	case OPTION_SGHW_VERSION:
+		lcd.print("v");
+		lcd.print(OS_SGHW_VERSION);
+		break;
+	case OPTION_SGFW_VERSION:
+		lcd_print_version(OS_SGFW_VERSION);
+		break;
   case OPTION_TIMEZONE: // if this is the time zone option, do some conversion
     tz = (int)options[i]-48;
     if (tz>=0) lcd_print_pgm(PSTR("+"));
@@ -1635,7 +1797,7 @@ void OpenSprinkler::lcd_print_option(int i) {
     break;
   }
   if (i==OPTION_WATER_PERCENTAGE)  lcd_print_pgm(PSTR("%"));
-  else if (i==OPTION_MASTER_ON_ADJ || i==OPTION_MASTER_OFF_ADJ || i==OPTION_MASTER_ON_ADJ_2 || i==OPTION_MASTER_OFF_ADJ_2)
+  else if (i == OPTION_MASTER_ON_ADJ || i == OPTION_MASTER_OFF_ADJ || i == OPTION_MASTER_ON_ADJ_2 || i == OPTION_MASTER_OFF_ADJ_2  || i == OPTION_CLOUDREFRESH_DEF || i == OPTION_CLOUDREFRESH_FAST )
     lcd_print_pgm(PSTR(" sec"));
 }
 
@@ -1704,14 +1866,16 @@ void OpenSprinkler::ui_set_options(int oid)
     case BUTTON_1:
       if (i==OPTION_FW_VERSION || i==OPTION_HW_VERSION || i==OPTION_FW_MINOR ||
           i==OPTION_HTTPPORT_0 || i==OPTION_HTTPPORT_1 ||
-          i==OPTION_PULSE_RATE_0 || i==OPTION_PULSE_RATE_1) break; // ignore non-editable options
+		  i == OPTION_PULSE_RATE_0 || i == OPTION_PULSE_RATE_1  || 
+		  i == OPTION_SGHW_VERSION || i == OPTION_SGFW_VERSION || i == OPTION_SEND_LOGFILES ) break; // ignore non-editable options
       if (pgm_read_byte(op_max+i) != options[i]) options[i] ++;
       break;
 
     case BUTTON_2:
       if (i==OPTION_FW_VERSION || i==OPTION_HW_VERSION || i==OPTION_FW_MINOR ||
           i==OPTION_HTTPPORT_0 || i==OPTION_HTTPPORT_1 ||
-          i==OPTION_PULSE_RATE_0 || i==OPTION_PULSE_RATE_1) break; // ignore non-editable options
+		  i == OPTION_PULSE_RATE_0 || i == OPTION_PULSE_RATE_1  ||
+		  i == OPTION_SGHW_VERSION || i == OPTION_SGFW_VERSION) break; // ignore non-editable options
       if (options[i] != 0) options[i] --;
       break;
 
@@ -1730,14 +1894,22 @@ void OpenSprinkler::ui_set_options(int oid)
         // click, move to the next option
         if (i==OPTION_USE_DHCP && options[i]) i += 9; // if use DHCP, skip static ip set
         else if (i==OPTION_HTTPPORT_0) i+=2; // skip OPTION_HTTPPORT_1
-        else if (i==OPTION_PULSE_RATE_0) i+=2; // skip OPTION_PULSE_RATE_1
-        else if (i==OPTION_SENSOR_TYPE && options[i]!=SENSOR_TYPE_RAIN) i+=2; // if not using rain sensor, skip rain sensor type
-        else if (i==OPTION_MASTER_STATION && options[i]==0) i+=3; // if not using master station, skip master on/off adjust
-        else if (i==OPTION_MASTER_STATION_2&& options[i]==0) i+=3; // if not using master2, skip master2 on/off adjust
+		else if (i == OPTION_FW_MINOR) i += 3; // skip PULSE option
+		else if (i == OPTION_FSENSOR_TYPE && options[i] == SENSOR_TYPE_FLOW) i = OPTION_PULSE_RATE_0; // if no soil sensor, skip soil sensor options
+		else if (i == OPTION_PULSE_RATE_0) i = OPTION_FLOWUNIT_GAL;		// skip after OPTION_PULSE_RATE setting
+		else if (i ==  OPTION_FW_VERSION) i = OPTION_CAL_REQUEST;		// skip Skip from FWversion to CalRequest
+		else if (i ==  OPTION_SGFW_VERSION) i = OPTION_TIMEZONE;		// after compl CalRq to SGFW, skip back and continue at OPTION_TIMEZONE
+		else if (i ==  OPTION_CURR_RANGE) i = OPTION_CLIENT_MODE;		// after compl CalRq to SGFW, skip back and continue at OPTION_TIMEZONE
+		else if (i == OPTION_RSENSOR_TYPE && options[i] != SENSOR_TYPE_RAIN) i += 2; // if not using rain sensor, skip rain sensor type
+		else if (i == OPTION_SSENSOR_1 && options[i] == SENSOR_TYPE_NONE) i += 2; // if no soil sensor1, skip soil sensor options
+		else if (i == OPTION_SSENSOR_2 && options[i] == SENSOR_TYPE_NONE) i += 2; // if no soil sensor2, skip soil sensor options
+		else if (i == OPTION_MASTER_STATION && options[i] == 0) i += 3; // if not using master station, skip master on/off adjust
+		else if (i == OPTION_MASTER_STATION_2&& options[i] == 0) i += 3; // if not using master2, skip master2 on/off adjust
+		else if (i == OPTION_CLIENT_MODE && options[i] == 0) i += 4; // if not ClientMode, skip Client parameters
         else  {
           i = (i+1) % NUM_OPTIONS;
         }
-        if(i==OPTION_SEQUENTIAL_RETIRED) i++;
+		if (i == OPTION_SEQUENTIAL_RETIRED || 	i == OPTION_LCD_SIZE || i == OPTION_LANGUAGE_LCD) i++;
         #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
         else if (hw_type==HW_TYPE_AC && i==OPTION_BOOST_TIME) i++;  // skip boost time for non-DC controller
         else if (lcd.type()==LCD_I2C && i==OPTION_LCD_CONTRAST) i+=2;
