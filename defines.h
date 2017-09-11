@@ -217,8 +217,8 @@
 #define DEFAULT_WEATHER_KEY       ""
 #define DEFAULT_JAVASCRIPT_URL    "https://ui.opensprinkler.com/js"
 #define DEFAULT_WEATHER_URL       "weather.opensprinkler.com"
-#define DEFAULT_CLOUD_URL         "client.sandz.hu"   //"http://client.sandz.hu/sr"
 #define DEFAULT_IFTTT_URL         "maker.ifttt.com"
+#define DEFAULT_CLOUD_URL         "client.sandz.hu"   //development server address: "http://client.sandz.hu/sr"
 
 /** Macro define of each option
   * Refer to OpenSprinkler.cpp for details on each option
