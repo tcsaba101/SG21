@@ -125,20 +125,24 @@
   */
 
   #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__) // for 4KB NVM
-
-    #define MAX_EXT_BOARDS    6  // maximum number of exp. boards (each expands 8 stations)
+	//*****
+	//due to the space needed for sensor data in nvm space the max no of stations are 48
+	//and the max number of programs are 16
+	//****
+	#define MAX_EXT_BOARDS    5  // maximum number of exp. boards (each expands 8 stations)
     #define MAX_NUM_STATIONS  ((1+MAX_EXT_BOARDS)*8)  // maximum number of stations
 
     #define NVM_SIZE            4096  // For AVR, nvm data is stored in EEPROM, ATmega1284 has 4K EEPROM
     #define STATION_NAME_SIZE   24    // maximum number of characters in each station name
 
-    #define MAX_PROGRAMDATA     2433  // program data
+    #define MAX_PROGRAMDATA     2100  // program data
     #define MAX_NVCONDATA       12    // non-volatile controller data
     #define MAX_USER_PASSWORD   36    // user password
     #define MAX_LOCATION        48    // location string
     #define MAX_JAVASCRIPTURL   48    // javascript url
     #define MAX_WEATHERURL      48    // weather script url
     #define MAX_WEATHER_KEY     24    // weather api key
+	#define MAX_CLOUDURL        48    // Cloud Server url
 
   #else
 
