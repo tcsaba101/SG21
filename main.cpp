@@ -85,6 +85,8 @@ ProgramData pd;   // ProgramdData object
 uint16_t v;	// current measurement variables
 byte today;
 bool new_day=0;
+//Those will be deleted later or declared in Sensor module once added
+ulong flow_count, flow_last_gpm;
 
 //LCD display multiplexing
 ulong disp_cnt;
@@ -693,7 +695,7 @@ void do_loop()
         // reset program busy bit
         os.status.program_busy = 0;
         // log flow sensor reading if flow sensor is used
-        if(os.options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_FLOW) {
+        if(os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) {
           write_log(LOGDATA_FLOWSENSE, curr_time);
           push_message(IFTTT_FLOWSENSOR, (flow_count>os.flowcount_log_start)?(flow_count-os.flowcount_log_start):0);
         }
@@ -875,7 +877,7 @@ void process_dynamic_events(ulong curr_time) {
   // check if rain is detected
   bool rain = false;
   bool en = os.status.enabled ? true : false;
-  if (os.status.rain_delayed || (os.status.rain_sensed && os.options[OPTION_SENSOR_TYPE] == SENSOR_TYPE_RAIN)) {
+  if (os.status.rain_delayed || (os.status.rain_sensed && os.options[OPTION_FSENSOR_TYPE] == SENSOR_TYPE_RAIN)) {
     rain = true;
   }
 
@@ -1074,7 +1076,8 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
       strcat_P(postval, PSTR(" minutes "));
       itoa((int)fval%60, postval+strlen(postval), 10);
       strcat_P(postval, PSTR(" seconds."));
-      if(os.options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_FLOW) {
+	  
+      if(os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) {
         strcat_P(postval, PSTR(" Flow rate: "));
         #if defined(ARDUINO)
         dtostrf(flow_last_gpm,5,2,postval+strlen(postval));
@@ -1082,6 +1085,7 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
         sprintf(tmp_buffer+strlen(tmp_buffer), "%5.2f", flow_last_gpm);
         #endif
       }
+	  
       break;
 
     case IFTTT_PROGRAM_SCHED:
@@ -1322,7 +1326,7 @@ void write_log(byte type, ulong curr_time) {
   }
   strcat_P(tmp_buffer, PSTR(","));
   ultoa(curr_time, tmp_buffer+strlen(tmp_buffer), 10);
-  if((os.options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_FLOW) && (type==LOGDATA_STATION)) {
+  if((os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) && (type==LOGDATA_STATION)) {
     // RAH implementation of flow sensor
     strcat_P(tmp_buffer, PSTR(","));
     #if defined(ARDUINO)
@@ -1456,6 +1460,7 @@ void check_network() {
   // nothing to do here
   // Linux will do this for you
 #endif
+  }
 }
 
 /** Perform NTP sync */

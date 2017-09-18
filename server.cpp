@@ -889,7 +889,7 @@ void server_json_controller_main() {
     bfill.emit_p(PSTR("\"curr\":$D,"), os.read_current());
   }
 #endif
-  if(os.options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_FLOW) {
+  if(os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) {
     bfill.emit_p(PSTR("\"flcrt\":$L,\"flwrt\":$D,"), os.flowcount_rt, FLOWCOUNT_RT_WINDOW);
   }
 

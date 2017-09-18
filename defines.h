@@ -320,6 +320,7 @@ NUM_OPTIONS	// total number of options
 #define LOGDATA_RAINDELAY				0x02
 #define LOGDATA_WATERLEVEL				0x03
 #define LOGDATA_PROGFLOW				0x04  //was LOGDATA_FLOWSENSE
+#define LOGDATA_FLOWSENSE				0x04 
 
 //Smart
 #define LOGDATA_RAINSENSE2				0x05
