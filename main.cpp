@@ -46,7 +46,6 @@ unsigned long getNtpTime();
 char ether_buffer[ETHER_BUFFER_SIZE];
 EthernetServer *m_server = 0;
 EthernetClient *m_client = 0;
-
 #endif
 
 void reset_all_stations();
@@ -54,17 +53,26 @@ void reset_all_stations_immediate();
 void push_message(byte type, uint32_t lval=0, float fval=0.f, const char* sval=NULL);
 void manual_start_program(byte, byte);
 void httpget_callback(byte, uint16_t, uint16_t);
+// @tcsaba: new functions
+void check_sensors(ulong curr_time);
+void check_network();
+byte push_message_cloud(byte type, ulong day=0);
+int freeRam();
+void make_logfile_name(char *name);
 
 
 // Small variations have been added to the timing values below
 // to minimize conflicting events
 #define NTP_SYNC_INTERVAL       86403L  // NYP sync interval, 24 hrs
 #define RTC_SYNC_INTERVAL       60      // RTC sync interval, 60 secs
-#define CHECK_NETWORK_INTERVAL  601     // Network checking timeout, 10 minutes
+#define CHECK_NETWORK_INTERVAL  120     // Network checking timeout, 2 minutes
 #define CHECK_WEATHER_TIMEOUT   3601    // Weather check interval: 1 hour
 #define CHECK_WEATHER_SUCCESS_TIMEOUT 86433L // Weather check success interval: 24 hrs
 #define LCD_BACKLIGHT_TIMEOUT   15      // LCD backlight timeout: 15 secs
 #define PING_TIMEOUT            200     // Ping test timeout: 200 ms
+// @tcsaba: cloud refresh intervals
+#define CLOUD_SYNC_INTERVAL     60		// Cloud refresh
+#define CLOUD_SYNC_FAST         10      // Cloud refresh fast
 
 extern char tmp_buffer[];       // scratch buffer
 BufferFiller bfill;             // buffer filler
@@ -73,36 +81,73 @@ BufferFiller bfill;             // buffer filler
 OpenSprinkler os; // OpenSprinkler object
 ProgramData pd;   // ProgramdData object
 
-/* ====== Robert Hillman (RAH)'s implementation of flow sensor ======
- * flow_begin - time when valve turns on
- * flow_start - time when flow starts being measured (i.e. 2 mins after flow_begin approx
- * flow_stop - time when valve turns off (last rising edge pulse detected before off)
- * flow_gallons - total # of gallons+1 from flow_start to flow_stop
- * flow_last_gpm - last flow rate measured (averaged over flow_gallons) from last valve stopped (used to write to log file). */
-ulong flow_begin, flow_start, flow_stop, flow_gallons;
-float flow_last_gpm=0;
+// @tcsaba: variables 
+uint16_t v;	// current measurement variables
+byte today;
+bool new_day=0;
 
-volatile ulong flow_count = 0;
-/** Flow sensor interrupt service routine */
-void flow_isr() {
-  if(os.options[OPTION_SENSOR_TYPE]!=SENSOR_TYPE_FLOW) return;
-  ulong curr = millis();
+//LCD display multiplexing
+ulong disp_cnt;
+bool test_on = true;
+#define SHOW_TIME 2000		//show time msec
+#define SHOW_TEST 4000		//show test
 
-  if(curr-os.flowcount_time_ms < 50) return;  // debounce threshold: 50ms
-  flow_count++;
-  os.flowcount_time_ms = curr;
+//Cloud sync variables
+char client_pw[] = "OsClientTCS\0";
+ulong  last_cloud_refresh= 0, cloud_refresh_period = 30, packet_delay=2; 
+bool send_post=false, send_history=0; 	
+byte log_status=0;
 
-  /* RAH implementation of flow sensor */
-  if (flow_start==0) { flow_gallons=0; flow_start=curr;}  // if first pulse, record time
-  if ((curr-flow_start)<90000) { flow_gallons=0; } // wait 90 seconds before recording flow_begin
-  else {  if (flow_gallons==1)  {  flow_begin = curr;}}
-  flow_stop = curr; // get time in ms for stop
-  flow_gallons++;  // increment gallon count for each interrupt
-  /* End of RAH implementation of flow sensor */
-}
+ulong last_sent_log=0;
+unsigned int log_end, log_to_send;
+ulong log_rec_counter;				  
+ulong millis_cnt, millis_cnt_2;
+
 
 #if defined(ARDUINO)
-// ====== UI defines ======
+// @tcs: if DEBUG enabled print to the serial monitor today or n days log records at startup
+	#if defined(SERIAL_DEBUG)
+	void print_today_log(ulong days){
+ 		ulong start, end;
+		ulong file_size;
+	 		end = os.now_tz() / 86400L;
+	 		start = end - days;
+	 		for(int i=start;i<=end;i++) {
+		 		itoa(i, tmp_buffer, 10);
+			 
+				 DEBUG_PRINTLN(tmp_buffer);
+		 		make_logfile_name(tmp_buffer);
+				 
+				 DEBUG_PRINT("\nFilename:   ");
+				 DEBUG_PRINTLN(tmp_buffer);
+				 
+		 		if (!sd.exists(tmp_buffer)) continue;
+		 		SdFile file;
+		 		file.open(tmp_buffer, O_READ);
+				 file_size= file.fileSize();
+
+		 		int res;
+		 		while(true) {
+			 		res = file.fgets(tmp_buffer, TMP_BUFFER_SIZE);
+			 		DEBUG_PRINT(tmp_buffer);
+			 		DEBUG_PRINT("\r");
+			 		last_sent_log++;
+			 		if (res <= 0) {
+				 		file.close();
+				 		break;
+			 		}
+				 }
+				 DEBUG_PRINT("No of logs:  /  File_size: ");
+				 DEBUG_PRINT(last_sent_log);
+				 DEBUG_PRINT(" / ");
+				 DEBUG_PRINTLN(file_size);
+				 
+				 last_sent_log = 0;
+			 }
+	}
+	#endif
+  
+  // ====== UI defines ======
 static char ui_anim_chars[3] = {'.', 'o', 'O'};
 
 #define UI_STATE_DEFAULT   0
@@ -229,6 +274,14 @@ void do_setup() {
   os.begin();          // OpenSprinkler init
   os.options_setup();  // Setup options
 
+    // @tcs:Set up sensors moved from OpenSprinkler.cpp by CV, see in SensorGroup.cpp
+  //sensors.init();
+
+/*/ @tcs: we set the ISR only if we have a flow sensor
+  if (os.options[OPTION_FSENSOR_TYPE] != SENSOR_TYPE_NONE) {
+	  attachInterrupt(PIN_FLOWSENSOR_INT, flowsensor_ISR, FALLING);
+  }
+*/
   pd.init();            // ProgramData init
 
   setSyncInterval(RTC_SYNC_INTERVAL);  // RTC sync interval
@@ -246,18 +299,44 @@ void do_setup() {
   /* Enable the WD interrupt (note no reset). */
   WDTCSR |= _BV(WDIE);
 
-  if (os.start_network()) {  // initialize network
+// @tcs:  initialize network and repeat check connections till it comes alive
+  if (os.start_network()) {  
+    os.status.netw_adapter_fail = 0;
     os.status.network_fails = 0;
   } else {
-    os.status.network_fails = 1;
+    os.status.netw_adapter_fail = 1;
   }
   os.status.req_network = 0;
   os.status.req_ntpsync = 1;
+	
+//@tcs: multiple initializing of adapter, router, internet connection checking
+	for( int i=0;i<12;i++){
+		delay(200);
+		check_network();
+		os.status.req_network = 1;
+     //prints to serial monitor the result of startup connection
+  	DEBUG_PRINT("Network_adapter_fail: / Network_fails: / Internet_fail: ");
+  	DEBUG_PRINT(os.status.netw_adapter_fail);
+  	DEBUG_PRINT(" / ");
+  	DEBUG_PRINT(os.status.network_fails);
+  	DEBUG_PRINT(" / ");
+  	DEBUG_PRINTLN(os.status.internet_fail);
+		if(!os.status.internet_fail) break;
+	}
+	
+  //if internet connection failed, set network fail status
+	if(os.status.internet_fail) os.status.network_fails = 7;
 
   os.apply_all_station_bits(); // reset station bits
 
   os.button_timeout = LCD_BACKLIGHT_TIMEOUT;
-}
+  
+  today = os.weekday_today(); //@tcs: set today weekday
+
+	#if defined(SERIAL_DEBUG)  
+     print_today_log(0);  //@tcs: give how many days' log records want to be listed at reset
+  #endif
+}//end of do_setup()
 
 // Arduino software reset function
 void(* sysReset) (void) = 0;
@@ -276,7 +355,7 @@ ISR(WDT_vect)
 
 #else
 
-void do_setup() {
+void do_setup() { //setup OsPi and OSBO
   initialiseEpoch();   // initialize time reference for millis() and micros()
   os.begin();          // OpenSprinkler init
   os.options_setup();  // Setup options
@@ -303,6 +382,8 @@ void check_weather();
 void perform_ntp_sync();
 void delete_log(char *name);
 void handle_web_request(char *p);
+void server_json_options_main();
+void insert_macaddress();
 
 /** Main Loop */
 void do_loop()
@@ -318,6 +399,16 @@ void do_loop()
   time_t curr_time = os.now_tz();
   // ====== Process Ethernet packets ======
 #if defined(ARDUINO)  // Process Ethernet packets for Arduino
+
+//@tcs: serial print last looptime if longer than 200msec 
+ #if defined (SERIAL_DEBUG)
+  if(millis() > millis_cnt_2+200) {
+	  DEBUG_PRINT("    #LoopTime: ");
+	  DEBUG_PRINTLN(millis() - millis_cnt_2);
+  }
+  millis_cnt_2 = millis();
+ #endif
+
   uint16_t pos=ether.packetLoop(ether.packetReceive());
   if (pos>0) {  // packet received
     handle_web_request((char*)Ethernet::buffer+pos);
@@ -349,10 +440,35 @@ void do_loop()
   }
 #endif  // Process Ethernet packets
 
+// @tcs: serial print Ethernet process length if longer than 20msec
+ #if defined (SERIAL_DEBUG)
+  if(millis() > millis_cnt_2+20) {
+	  DEBUG_PRINT("    #ProcessEth: ");
+	  DEBUG_PRINTLN(millis() - millis_cnt_2);
+	}
+  millis_cnt_2 = millis();
+ #endif
+
   // if 1 second has passed
   if (last_time != curr_time) {
     last_time = curr_time;
     if (os.button_timeout) os.button_timeout--;
+	
+		// @tcs: check network connection
+		if (curr_time && (curr_time % CHECK_NETWORK_INTERVAL==0)){ 
+			os.status.req_network = 1;
+			check_network();
+			DEBUG_PRINT("Network_adapter_fail: / Network_fails: / Internet_fail: ");
+			DEBUG_PRINT(os.status.netw_adapter_fail);
+			DEBUG_PRINT(" / ");
+			DEBUG_PRINT(os.status.network_fails);
+			DEBUG_PRINT(" / ");
+			DEBUG_PRINTLN(os.status.internet_fail);
+		}
+		
+		// perform ntp sync
+		if (curr_time % NTP_SYNC_INTERVAL == 0) os.status.req_ntpsync = 1;
+		perform_ntp_sync();
     
 #if defined(ARDUINO)
     if (!ui_state)
@@ -385,7 +501,7 @@ void do_loop()
     }
 
     // ====== Check rain sensor status ======
-    if (os.options[OPTION_SENSOR_TYPE] == SENSOR_TYPE_RAIN) { // if a rain sensor is connected
+    if (os.options[OPTION_RSENSOR_TYPE] == SENSOR_TYPE_RAIN) { // if a rain sensor is connected
       os.rainsensor_status();
       if (os.old_status.rain_sensed != os.status.rain_sensed) {
         if (os.status.rain_sensed) {
@@ -525,9 +641,6 @@ void do_loop()
 
               //turn_on_station(sid);
               os.set_station_bit(sid, 1);
-
-              // RAH implementation of flow sensor
-              flow_start=0;
 
             } //if curr_time > scheduled_start_time
           } // if current station is not running
@@ -671,22 +784,6 @@ void do_loop()
     }
 #endif
 
-    // real-time flow count
-    static ulong flowcount_rt_start = 0;
-    if (os.options[OPTION_SENSOR_TYPE]==SENSOR_TYPE_FLOW) {
-      if (curr_time % FLOWCOUNT_RT_WINDOW == 0) {
-        os.flowcount_rt = (flow_count > flowcount_rt_start) ? flow_count - flowcount_rt_start: 0;
-        flowcount_rt_start = flow_count;
-      }
-    }
-
-    // perform ntp sync
-    if (curr_time % NTP_SYNC_INTERVAL == 0) os.status.req_ntpsync = 1;
-    perform_ntp_sync();
-
-    // check network connection
-    if (curr_time && (curr_time % CHECK_NETWORK_INTERVAL==0))  os.status.req_network = 1;
-    check_network();
 
     // check weather
     check_weather();
@@ -707,12 +804,12 @@ void do_loop()
       push_message(IFTTT_REBOOT);
     }
 
-  }
+  } // end of 1sec has passed
 
   #if !defined(ARDUINO)
     delay(1); // For OSPI/OSBO/LINUX, sleep 1 ms to minimize CPU usage
   #endif
-}
+} // end of void do_loop()
 
 /** Make weather query */
 void check_weather() {
@@ -746,9 +843,6 @@ void turn_off_station(byte sid, ulong curr_time) {
   // ignore if we are turning off a station that's not running or scheduled to run
   if (qid>=pd.nqueue)  return;
 
-  // RAH implementation of flow sensor
-  if (flow_gallons>1) {flow_last_gpm = (float) 60000/(float)((flow_stop-flow_begin)/(flow_gallons-1));  }// RAH calculate GPM, 1 pulse per gallon
-  else {flow_last_gpm = 0;}  // RAH if not one gallon (two pulses) measured then record 0 gpm
 
   RuntimeQueueStruct *q = pd.queue+qid;
 
@@ -858,8 +952,7 @@ void schedule_all_stations(ulong curr_time) {
     if (!os.status.program_busy) {
       os.status.program_busy = 1;  // set program busy bit
       // start flow count
-      if(os.options[OPTION_SENSOR_TYPE] == SENSOR_TYPE_FLOW) {  // if flow sensor is connected
-        os.flowcount_log_start = flow_count;
+      if(os.options[OPTION_FSENSOR_TYPE] == SENSOR_TYPE_FLOW) {  // if flow sensor is connected
         os.sensor_lasttime = curr_time;
       }
     }
@@ -951,6 +1044,9 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
   static const char* server = DEFAULT_IFTTT_URL;
   static char key[IFTTT_KEY_MAXSIZE];
   static char postval[TMP_BUFFER_SIZE];
+
+  //@tcs: return when no internet connection
+  if(os.status.network_fails != 0) return; //do not post if network failed
 
   // check if this type of event is enabled for push notification
   if((os.options[OPTION_IFTTT_ENABLE]&type) == 0) return;
@@ -1282,9 +1378,9 @@ void delete_log(char *name) {
 }
 
 /** Perform network check
- * This function pings the router
- * to check if it's still online.
- * If not, it re-initializes Ethernet controller.
+ * Check Ethernet controller, if fails restart
+ * This function pings the router, if fails set fail flag
+ * check if it's still online, if not sets flag
  */
 void check_network() {
 #if defined(ARDUINO)
@@ -1295,40 +1391,67 @@ void check_network() {
   if (os.status.req_network) {
     os.status.req_network = 0;
     // change LCD icon to indicate it's checking network
-    if (!ui_state) {
-      os.lcd.setCursor(15, 1);
-      os.lcd.write(4);
-    }
+	
+	  if (!ui_state) {
+		  os.lcd.setCursor(15, 1);
+		  os.lcd.write(4);				//
+	   }
+	   
+		ulong start = millis();
+		boolean failed = true;
+	
+		if(os.status.netw_adapter_fail){
+			
+			if (os.start_network())  os.status.netw_adapter_fail=0;  //network adapter setup successful
+			
+		}
+				
+		// check LAN connection: ping gateway ip
+		ether.clientIcmpRequest(ether.gwip);
 
-    // ping gateway ip
-    ether.clientIcmpRequest(ether.gwip);
+		// wait at most PING_TIMEOUT milliseconds for ping result
+		do {
+			ether.packetLoop(ether.packetReceive());
+			if (ether.packetLoopIcmpCheckReply(ether.gwip)) {
+			failed = false;
+			break;
+			}
+		} while(millis() - start < PING_TIMEOUT);
+		if (failed)  {
+			os.status.network_fails++;		//the ping failed
+ 			os.status.internet_fail = true;			
+			// clamp it to 6
+			// if network error failed more than 6 times, mark for safe restart
+			//if (os.status.network_fails>=6)  os.status.safe_reboot = 1;			
+			if (os.status.network_fails > 6){
+				 os.status.network_fails = 6;
+			}
+		}
+		else{os.status.network_fails=0;}	//gateway ping was successful
+			
+		if(!os.status.network_fails){
+ 			os.status.internet_fail = 0;
+			 //check internet connection: ping Google homepage
+			start = millis();
+			failed = true;
+		
+			do {
+				if (ether.dnsLookup(PSTR("www.google.com"))){
+					ether.printIp("SRV: ", ether.hisip);		
+					ether.clientIcmpRequest(ether.hisip);
+					ether.packetLoop(ether.packetReceive());
+					if (ether.packetLoopIcmpCheckReply(ether.hisip)) {
+						failed = false;
+						break;
+					}
+	
+				}
+			} while(millis() - start < PING_TIMEOUT);
+			// wait at most PING_TIMEOUT milliseconds for ping result
+/**/	
+			if (failed)  os.status.internet_fail = 1;	//google ping failed
+			}
 
-    ulong start = millis();
-    boolean failed = true;
-    // wait at most PING_TIMEOUT milliseconds for ping result
-    do {
-      ether.packetLoop(ether.packetReceive());
-      if (ether.packetLoopIcmpCheckReply(ether.gwip)) {
-        failed = false;
-        break;
-      }
-    } while(millis() - start < PING_TIMEOUT);
-    if (failed)  {
-      os.status.network_fails++;
-      // clamp it to 6
-      if (os.status.network_fails > 6) os.status.network_fails = 6;
-    }
-    else os.status.network_fails=0;
-    // if failed more than 6 times, restart
-    if (os.status.network_fails>=6) {
-      // mark for safe restart
-      os.status.safe_reboot = 1;
-    } else if (os.status.network_fails>2) {
-      // if failed more than twice, try to reconnect    
-      if (os.start_network())
-        os.status.network_fails=0;
-    }
-  }
 #else
   // nothing to do here
   // Linux will do this for you
@@ -1375,5 +1498,14 @@ int main(int argc, char *argv[]) {
     do_loop();
   }
   return 0;
+}
+#endif
+
+#if defined(SERIAL_DEBUG)
+int freeRam () 
+{
+  extern int __heap_start, *__brkval; 
+  int v; 
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
 }
 #endif
