@@ -83,6 +83,7 @@ BufferFiller bfill;             // buffer filler
 // ====== Object defines ======
 OpenSprinkler os; // OpenSprinkler object
 ProgramData pd;   // ProgramdData object
+SensorGroup sensors;	//SensorGroup object
 
 // @tcsaba: variables 
 uint16_t v;	// current measurement variables
