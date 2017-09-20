@@ -27,6 +27,8 @@
 #include "program.h"
 #include "weather.h"
 #include "server.h"
+#include "SensorGroup.h"
+
 
 #if defined(ARDUINO)
 
@@ -36,6 +38,7 @@ byte Ethernet::buffer[ETHER_BUFFER_SIZE]; // Ethernet packet buffer
 SdFat sd;                                 // SD card object
 
 unsigned long getNtpTime();
+extern void flowsensor_ISR();
 
 #else // header and defs for RPI/BBB
 
@@ -107,7 +110,7 @@ ulong millis_cnt, millis_cnt_2;
 
 
 #if defined(ARDUINO)
-// @tcs: if DEBUG enabled print to the serial monitor today or n days log records at startup
+// @tcs: if DEBUG enabled, print to the serial monitor today or n days log records at startup
 	#if defined(SERIAL_DEBUG)
 	void print_today_log(ulong days){
  		ulong start, end;
@@ -272,18 +275,18 @@ void do_setup() {
   MCUSR &= ~(1<<WDRF);
 
   DEBUG_BEGIN(9600);
-  DEBUG_PRINTLN("started.");
+  DEBUG_PRINTLN("starting.....");
   os.begin();          // OpenSprinkler init
   os.options_setup();  // Setup options
 
     // @tcs:Set up sensors moved from OpenSprinkler.cpp by CV, see in SensorGroup.cpp
-  //sensors.init();
+ sensors.init();
 
-/*/ @tcs: we set the ISR only if we have a flow sensor
+// @tcs: we set the ISR only if we have a flow sensor
   if (os.options[OPTION_FSENSOR_TYPE] != SENSOR_TYPE_NONE) {
 	  attachInterrupt(PIN_FLOWSENSOR_INT, flowsensor_ISR, FALLING);
   }
-*/
+
   pd.init();            // ProgramData init
 
   setSyncInterval(RTC_SYNC_INTERVAL);  // RTC sync interval
@@ -316,7 +319,8 @@ void do_setup() {
 		delay(200);
 		check_network();
 		os.status.req_network = 1;
-     //prints to serial monitor the result of startup connection
+
+    //prints to serial monitor the result of startup connection
   	DEBUG_PRINT("Network_adapter_fail: / Network_fails: / Internet_fail: ");
   	DEBUG_PRINT(os.status.netw_adapter_fail);
   	DEBUG_PRINT(" / ");
@@ -537,11 +541,39 @@ void do_loop()
     // we only need to check once every minute
     if (curr_minute != last_minute) {
       last_minute = curr_minute;
+	  
+      // ====== if a day has been changed send end of the day log if no program running =====
+
+	  // ====== If a program is running the final statistics and day flow will be logged on the new date.=====
+
+	  
+	  if(today != os.weekday_today()) {  //new day?
+		  if(!new_day){					//do regular new day functions here
+				os.options[OPTION_SEND_LOGFILES] = 1;  //send the previous day log again
+		  		log_rec_counter = 0;
+				sensors.alarm_cnt = 0;
+				new_day = true;
+		  }
+	  
+		  if(!os.status.program_busy) {    //if program running we wait till finish to save the program and daily flow
+			sensors.day_flow_calc(curr_time);	// logs all day flow log
+			today = os.weekday_today();			//set today identifier
+			new_day = false;									
+			}
+	  }
       // check through all programs
       for(pid=0; pid<pd.nprograms; pid++) {
-        pd.read(pid, &prog);
-        if(prog.check_match(curr_time)) {
-          // program match found
+       pd.read(pid, &prog);
+       if(prog.check_match(curr_time)) {
+		
+      // if soil sensor attached to the current program, and the soil is wet, skip schedule watering.
+  		if(prog.attach_soil_sensor_1 && !os.status.dry_soil_1)
+  		 write_log(LOGDATA_SOIL1_PROG_CANCEL, curr_time, pid);
+  		 else if (prog.attach_soil_sensor_2 && !os.status.dry_soil_2) 
+  		   write_log(LOGDATA_SOIL2_PROG_CANCEL, curr_time, pid);
+  		   else {
+		
+          // program match found and no attached soil sensor is wet
           // process all selected stations
           for(sid=0;sid<os.nstations;sid++) {
             bid=sid>>3;
@@ -549,6 +581,9 @@ void do_loop()
             // skip if the station is a master station (because master cannot be scheduled independently
             if ((os.status.mas==sid+1) || (os.status.mas2==sid+1))
               continue;
+			  
+			// TODO: best place for skipping fatal flow stations
+			
 
             // if station has non-zero water time and the station is not disabled
             if (prog.durations[sid] && !(os.station_attrib_bits_read(ADDR_NVM_STNDISABLE+bid)&(1<<s))) {
@@ -562,7 +597,6 @@ void do_loop()
                                                 // do not water
                   water_time = 0;
               }
-
               if (water_time) {
                 // check if water time is still valid
                 // because it may end up being zero after scaling
@@ -580,7 +614,8 @@ void do_loop()
             }// if prog.durations[sid]
           }// for sid
           if(match_found) push_message(IFTTT_PROGRAM_SCHED, pid, prog.use_weather?os.options[OPTION_WATER_PERCENTAGE]:100);
-        }// if check_match
+		 }
+		}// if check_match
       }// for pid
 
       // calculate start and end time
@@ -588,7 +623,7 @@ void do_loop()
         schedule_all_stations(curr_time);
 
         // For debugging: print out queued elements
-        DEBUG_PRINT("en:");
+        /*DEBUG_PRINT("en:");
         for(q=pd.queue;q<pd.queue+pd.nqueue;q++) {
           DEBUG_PRINT("[");
           DEBUG_PRINT(q->sid);
@@ -598,7 +633,7 @@ void do_loop()
           DEBUG_PRINT(q->st);
           DEBUG_PRINT("]");
         }
-        DEBUG_PRINTLN("");
+        DEBUG_PRINTLN("");*/
       }
     }//if_check_current_minute
 
@@ -634,7 +669,10 @@ void do_loop()
           if (q->st > 0) {
             // if so, check if we should turn it off
             if (curr_time >= q->st+q->dur) {
-              turn_off_station(sid, curr_time);
+				
+              turn_off_station(sid, curr_time);  //this also stops the station flow counting
+      			  sensors.station_stopped(sid);
+			  
             }
           }
           // if current station is not running, check if we should turn it on
@@ -643,6 +681,7 @@ void do_loop()
 
               //turn_on_station(sid);
               os.set_station_bit(sid, 1);
+      			  sensors.station_started(sid);
 
             } //if curr_time > scheduled_start_time
           } // if current station is not running
@@ -696,11 +735,15 @@ void do_loop()
         os.status.program_busy = 0;
         // log flow sensor reading if flow sensor is used
         if(os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) {
-          write_log(LOGDATA_FLOWSENSE, curr_time);
-          push_message(IFTTT_FLOWSENSOR, (flow_count>os.flowcount_log_start)?(flow_count-os.flowcount_log_start):0);
-        }
+			
+          sensors.program_stopped();
+		  
+/*          push_message(IFTTT_FLOWSENSOR, (flow_count>os.flowcount_log_start)?(flow_count-os.flowcount_log_start):0);
+*/       }
 
         // in case some options have changed while executing the program
+
+		// TODO: reset the calibration of the ststions when master station has changed
         os.status.mas = os.options[OPTION_MASTER_STATION]; // update master station
         os.status.mas2= os.options[OPTION_MASTER_STATION_2]; // update master2 station
       }
@@ -754,6 +797,19 @@ void do_loop()
       }
       os.set_station_bit(os.status.mas2-1, masbit2);
     }    
+
+	//TCs: read current sensor offset if no station running
+	v=0;
+	for (sid = 0; sid <= MAX_EXT_BOARDS; sid++) {
+		v += os.station_bits[sid];
+	}
+	if(v==0) {
+		os.current_offset = analogRead(PIN_CURR_SENSE);
+	}
+
+	// call the loop of the sensor group
+	sensors.loop(curr_time);
+
 
     // process dynamic events
     process_dynamic_events(curr_time);
@@ -845,7 +901,6 @@ void turn_off_station(byte sid, ulong curr_time) {
   // ignore if we are turning off a station that's not running or scheduled to run
   if (qid>=pd.nqueue)  return;
 
-
   RuntimeQueueStruct *q = pd.queue+qid;
 
   // check if the current time is past the scheduled start time,
@@ -859,7 +914,7 @@ void turn_off_station(byte sid, ulong curr_time) {
       pd.lastrun.endtime = curr_time;
 
       // log station run
-      write_log(LOGDATA_STATION, curr_time);
+      write_log(LOGDATA_STATION, curr_time, 0);
       push_message(IFTTT_STATION_RUN, sid, pd.lastrun.duration);
     }
   }
@@ -943,14 +998,16 @@ void schedule_all_stations(ulong curr_time) {
       // stagger concurrent stations by 1 second
       con_start_time++;
     }
-    DEBUG_PRINT("[");
+
+    /*DEBUG_PRINT("[");
     DEBUG_PRINT(sid);
     DEBUG_PRINT(":");
     DEBUG_PRINT(q->st);
     DEBUG_PRINT(",");
     DEBUG_PRINT(q->dur);
     DEBUG_PRINT("]");
-    DEBUG_PRINTLN(pd.nqueue);
+    DEBUG_PRINTLN(pd.nqueue);*/
+
     if (!os.status.program_busy) {
       os.status.program_busy = 1;  // set program busy bit
       // start flow count
@@ -1049,7 +1106,7 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
 
   //@tcs: return when no internet connection
   if(os.status.network_fails != 0) return; //do not post if network failed
-
+  
   // check if this type of event is enabled for push notification
   if((os.options[OPTION_IFTTT_ENABLE]&type) == 0) return;
   key[0] = 0;
@@ -1076,16 +1133,14 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
       strcat_P(postval, PSTR(" minutes "));
       itoa((int)fval%60, postval+strlen(postval), 10);
       strcat_P(postval, PSTR(" seconds."));
-	  
       if(os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) {
         strcat_P(postval, PSTR(" Flow rate: "));
         #if defined(ARDUINO)
-        dtostrf(flow_last_gpm,5,2,postval+strlen(postval));
+        dtostrf(sensors.realtime_GPM,5,2,postval+strlen(postval));
         #else
         sprintf(tmp_buffer+strlen(tmp_buffer), "%5.2f", flow_last_gpm);
         #endif
       }
-	  
       break;
 
     case IFTTT_PROGRAM_SCHED:
@@ -1151,7 +1206,8 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
   }
 
   strcat_P(postval, PSTR("\"}"));
-
+  
+  DEBUG_PRINT("THE IFTTT MESSAGE:  ");
   DEBUG_PRINTLN(postval);
 
 #if defined(ARDUINO)
@@ -1237,22 +1293,15 @@ void make_logfile_name(char *name) {
   strcat_P(tmp_buffer, PSTR(".txt"));
 }
 
-/* To save RAM space, we store log type names
- * in program memory, and each name
- * must be strictly two characters with an ending 0
- * so each name is 3 characters total
- */
-static const char log_type_names[] PROGMEM =
-    "  \0"
-    "rs\0"
-    "rd\0"
-    "wl\0"
-    "fl\0";
+
 
 /** write run record to log on SD card */
-void write_log(byte type, ulong curr_time) {
-  if (!os.options[OPTION_ENABLE_LOGGING]) return;
+void write_log(byte type, ulong curr_time, ulong param) {
 
+  if (!os.options[OPTION_ENABLE_LOGGING]) return;
+  char tmp2[10];
+  char tmp3[10];
+  
   // file name will be logs/xxxxx.tx where xxxxx is the day in epoch time
   ultoa(curr_time / 86400, tmp_buffer, 10);
   make_logfile_name(tmp_buffer);
@@ -1266,6 +1315,10 @@ void write_log(byte type, ulong curr_time) {
     if (sd.mkdir(LOG_PREFIX) == false) {
       return;
     }
+	else{
+		log_rec_counter=0;
+	}
+		
   }
   SdFile file;
   int ret = file.open(tmp_buffer, O_CREAT | O_WRITE );
@@ -1288,57 +1341,191 @@ void write_log(byte type, ulong curr_time) {
   }
   fseek(file, 0, SEEK_END);
 #endif  // prepare log folder
+  
+	// ### CLASSIC FUNCTIONAL EVENT LOGS
+  
+	if(type == LOGDATA_STATION) {
 
-  strcpy_P(tmp_buffer, PSTR("["));
+		// station ended: [program type,station id, duration, time, impulses, current]
+		sprintf(tmp_buffer, "[%u,%u,%u,%lu,%lu,%lu]\n",
+			pd.lastrun.program, pd.lastrun.station,
+			pd.lastrun.duration, curr_time,
+			sensors.station_impulses, sensors.realtime_current);
+	}
+	
+	if(type == LOGDATA_PROGFLOW) {  //was LOGDATA_FLOWSENSE
 
-  if(type == LOGDATA_STATION) {
-    itoa(pd.lastrun.program, tmp_buffer+strlen(tmp_buffer), 10);
-    strcat_P(tmp_buffer, PSTR(","));
-    itoa(pd.lastrun.station, tmp_buffer+strlen(tmp_buffer), 10);
-    strcat_P(tmp_buffer, PSTR(","));
-    // duration is unsigned integer
-    ultoa((ulong)pd.lastrun.duration, tmp_buffer+strlen(tmp_buffer), 10);
-  } else {
-    ulong lvalue;
-    if(type==LOGDATA_FLOWSENSE) {
-      lvalue = (flow_count>os.flowcount_log_start)?(flow_count-os.flowcount_log_start):0;
-    } else {
-      lvalue = 0;
-    }
-    ultoa(lvalue, tmp_buffer+strlen(tmp_buffer), 10);
-    strcat_P(tmp_buffer, PSTR(",\""));
-    strcat_P(tmp_buffer, log_type_names+type*3);
-    strcat_P(tmp_buffer, PSTR("\","));
+		// program ended: [flow_impulses, "fl", flow_duration, time]
+		sprintf(tmp_buffer, "[%lu,\"fl\",%lu,%lu]\n", sensors.prog_impulses,
+			curr_time - sensors.prog_start_time, curr_time);
+	}
+	
+	if (type == LOGDATA_RAINDELAY) {
+	// rain delay: [0,"rd",length of rain delay,curr_time]
+	sprintf(tmp_buffer, "[0,\"rd\",%lu,%lu]\n",
+		(curr_time > os.raindelay_start_time) ? (curr_time - os.raindelay_start_time) : 0,
+		curr_time);
+	}
+	
+	if (type == LOGDATA_RAINSENSE) {  
+		// rain sensor: [0,"rs",length of ? ,curr_time] it is the orinal log: only logs when rain_sensed ==> 0, and logs the length of 0 state
+		sprintf(tmp_buffer, "[0,\"rs\",%lu,%lu]\n",    //%d, os.status.rain_sensed,
+			(curr_time > os.sensor_lasttime) ? (curr_time - os.sensor_lasttime) : 0,
+			curr_time);
+	}
 
-    switch(type) {
-      case LOGDATA_RAINSENSE:
-      case LOGDATA_FLOWSENSE:
-        lvalue = (curr_time>os.sensor_lasttime)?(curr_time-os.sensor_lasttime):0;
-        break;
-      case LOGDATA_RAINDELAY:
-        lvalue = (curr_time>os.raindelay_start_time)?(curr_time-os.raindelay_start_time):0;
-        break;
-      case LOGDATA_WATERLEVEL:
-        lvalue = os.options[OPTION_WATER_PERCENTAGE];
-        break;
-    }
-    ultoa(lvalue, tmp_buffer+strlen(tmp_buffer), 10);
-  }
-  strcat_P(tmp_buffer, PSTR(","));
-  ultoa(curr_time, tmp_buffer+strlen(tmp_buffer), 10);
-  if((os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) && (type==LOGDATA_STATION)) {
-    // RAH implementation of flow sensor
-    strcat_P(tmp_buffer, PSTR(","));
-    #if defined(ARDUINO)
-    dtostrf(flow_last_gpm,5,2,tmp_buffer+strlen(tmp_buffer));
-    #else
-    sprintf(tmp_buffer+strlen(tmp_buffer), "%5.2f", flow_last_gpm);
-    #endif
-  }
-  strcat_P(tmp_buffer, PSTR("]\r\n"));
+	if (type == LOGDATA_WATERLEVEL) {
+		// value of waterlevel: [0,"wl", percent, curr_time]
+		sprintf(tmp_buffer, "[0,\"wl\",%u,%lu]\n",
+			os.options[OPTION_WATER_PERCENTAGE],
+			curr_time);
+	}
+	
+	// ### NEW FUNCTIONAL EVENT LOGS
 
+	if(type == LOGDATA_PROGFLOW2) {
+
+		// program ended: [0, "fp",type, time,flow_impulses, flow_duration]
+		sprintf(tmp_buffer, "[0,\"fp\",%d,%lu,%lu,%lu,%lu,%lu]\n", type, curr_time, 
+		sensors.prog_impulses,	curr_time - sensors.prog_start_time, sensors.last_prog_impulses, sensors.day_impulses);
+	}
+	
+	if(type == LOGDATA_DAYFLOW) {
+
+		// daily water use: [0, "fd", type, time, day_impulses]
+		sprintf(tmp_buffer, "[0,\"fd\",%d,%lu,%lu]\n", type, curr_time, sensors.day_impulses);
+	}
+	
+	if (type == LOGDATA_RAINSENSE2) {
+		// rain sensor: [0,"rn",type,curr_time,status:0/1,curr_time] 
+		sprintf(tmp_buffer, "[0,\"rn\",%d,%lu,%d]\n", type, curr_time, os.status.rain_sensed);
+	}
+	
+	if (type == LOGDATA_RAINDELAY2) {
+		// rain delay: [0,"re",type,curr_time,state of rain delay]
+		sprintf(tmp_buffer, "[0,\"re\",%d,%lu,%d]\n", type, curr_time, os.status.rain_delayed);
+	}
+
+	if (type == LOGDATA_SOIL1) {
+		// soil1 activated: [0,"s1", type,curr_time, status]
+		sprintf(tmp_buffer, "[0,\"s1\",%d,%lu,%d]\n", type,	curr_time, os.status.dry_soil_1);
+			//curr_time > os.s1sensor_lasttime ? curr_time - os.s1sensor_lasttime : 0
+	}
+
+	if (type == LOGDATA_SOIL2) {
+		// soil2 activated: [0,"s2",type,curr_time,soil_sensor2 status]
+		sprintf(tmp_buffer, "[0,\"s2\",%d,%lu,%d]\n", type,curr_time, os.status.dry_soil_2);
+			//, time since last change: curr_time > os.s2sensor_lasttime ? curr_time - os.s2sensor_lasttime : 0
+	}
+
+	if (type == LOGDATA_SOIL1_PROG_CANCEL) {
+		// soil1 activated: [0,"s1pc",type,curr_time,program id, soil_sensor1 status]
+		sprintf(tmp_buffer, "[0,\"s1pc\",%d,%lu,%lu,%d]\n", type,curr_time, param, os.status.dry_soil_1);
+	}
+
+	if (type == LOGDATA_SOIL2_PROG_CANCEL) {
+		// soil1 activated: [0,"s2pc",type,curr_time,program id, soil_sensor2 status]
+		sprintf(tmp_buffer, "[0,\"s2pc\",%d,%lu,%lu,%d]\n", type, curr_time, param, os.status.dry_soil_2);
+	}
+
+	if (type == LOGDATA_SOIL1_STATION_CANCEL) {
+		// soil1 activated: [0,"s1sc",type,  curr_time, station id, soil_sensor1 status]
+		sprintf(tmp_buffer, "[0,\"s1sc\",%d,%lu,%d,%d]\n", type,curr_time, param, os.status.dry_soil_1);
+	}
+
+	if (type == LOGDATA_SOIL2_STATION_CANCEL) {
+		// soil1 activated: [0,"s2sc",type, curr_time, station id, soil_sensor2 status]
+		sprintf(tmp_buffer, "[0,\"s2sc\",%d,%lu,%lu,%d]\n", type,curr_time, param, os.status.dry_soil_2);
+	}
+
+	if (type == LOGDATA_FATAL_STATION_CANCEL) {
+		// soil1 activated: [0,"fatsc",type,curr_time, station id]
+		sprintf(tmp_buffer, "[0,\"fatsc\",%d,%lu,%lu]\n", type, curr_time, param);
+	}
+
+	if (type == LOGDATA_RAIN_STATION_CANCEL) {
+		// soil1 activated: [0,"rnsc",type, time, station id, rain sensor status, rain delay status]
+		sprintf(tmp_buffer, "[0,\"rnsc\",%d,%lu,%lu,%d,%d]\n", type, curr_time, param, os.status.rain_sensed,
+		 os.status.rain_delayed);
+	}
+
+	if(type == LOGDATA_CALIBRATED) {
+
+		// calibration saved: [0,"cal",type, time, station id, current, flow]
+		dtostrf(sensors.realtime_GPM,4,2,tmp2);
+		sprintf(tmp_buffer, "[0,\"cal\",%d,%lu,%d,%lu,%s]\n", type, curr_time,
+			sensors.sid, sensors.realtime_current, tmp2);
+	}
+	
+	//####  ALARM LOGS
+	
+	if(type == LOGDATA_ALARM_FLOW_STOPPED) {
+
+		// alarm:flow stopped: [0, "alfs",type, time, flow impulses since start, running time]
+		sprintf(tmp_buffer, "[0,\"alfs\",%d,%lu,%d,%lu,%lu]\n", type, curr_time, sensors.sid,
+		sensors.prog_impulses, curr_time - sensors.prog_start_time);
+	}
+	
+	if (type == LOGDATA_ALARM_FLOW_LOW || type == LOGDATA_ALARM_FLOW_HIGH) {
+		// station flow error: [0,"alf",type,time, station id, ref flow, realtime GPM]
+		dtostrf(sensors.realtime_GPM,4,2,tmp2);
+		sprintf(tmp_buffer, "[0,\"alf\",%d,%lu,%d,%d,%s]\n",
+			type,curr_time, sensors.sid, sensors.flow_refval>>3, tmp2);
+	}
+
+	if (type == LOGDATA_ALARM_CURRENT_LOW || type == LOGDATA_ALARM_CURRENT_HIGH) {
+		// station current error: [0,"alc",type,time, station id, ref current, realtime current]
+		sprintf(tmp_buffer, "[0,\"alc\",%d,%lu,%d,%d,%lu]\n",
+			type, curr_time, sensors.sid, sensors.curr_refval<<2, sensors.realtime_current);
+	}
+
+	if (type == LOGDATA_ALARM_FF_QUANTITY || type == LOGDATA_ALARM_FF_TIME || type == LOGDATA_FREEFLOW_END) {
+		// freeflow overrun: [0,"alff",type, time, impulses, runtime]
+		//dtostrf(sensors.realtime_GPM,4,2,tmp2);
+		//dtostrf(sensors.realtime_gallons,4,2,tmp3);
+		sprintf(tmp_buffer, "[0,\"alff\",%d,%lu,%lu,%lu]\n",
+			type, curr_time, sensors.prog_impulses, curr_time - sensors.prog_start_time);
+	}
+	
+	if (type == LOGDATA_ALARM_LEAKAGE_START) {
+		// leakage error: [0,"alls",type,time]
+		sprintf(tmp_buffer, "[0,\"alls\",%d,%lu]\n",
+			type, curr_time);
+	}
+	
+	if (type == LOGDATA_ALARM_LEAKAGE_END) {
+		// station flow error: [0,"alle",type,time,FF quantity,FF duration]
+		//dtostrf(sensors.realtime_gallons,4,2,tmp3);
+		sprintf(tmp_buffer, "[0,\"alle\",%d,%lu,%lu,%lu]\n",
+			type, curr_time, sensors.prog_impulses, curr_time - sensors.prog_start_time);
+	}
+	
+	if (type == LOGDATA_ALARM_FATAL_FLOW) {
+		// station fatal flow error: [0,"alfat",type,time,station id, ref flow, realtime GPM]
+		dtostrf(sensors.realtime_GPM,4,2,tmp2);
+		sprintf(tmp_buffer, "[0,\"alfat\",%d,%lu,%d,%d,%s]\n",
+			type, curr_time, sensors.sid, sensors.flow_refval>>3, tmp2);
+	}
+
+	//  #### ADMIN LOGS
+
+	if (type == LOGDATA_FAILED_STATE) {
+		// FSM failed routing: [0,"fstat",type,time,station id,event, old_state, curr state]
+		dtostrf(sensors.realtime_GPM,4,2,tmp2);
+		sprintf(tmp_buffer, "[0,\"fstat\",%d,%lu,%d,%d,%d,%d]\n",
+			type, curr_time, sensors.sid, sensors.event, sensors.old_state,
+			 sensors.current_state);
+	}
+	
+	// ### END OF RECORD DATA
+  
 #if defined(ARDUINO)
+
+  DEBUG_PRINTLN(tmp_buffer);
+ 	DEBUG_PRINTLN(freeRam());
+ 
   file.write(tmp_buffer);
+  log_rec_counter++;
   file.close();
 #else
   fwrite(tmp_buffer, 1, strlen(tmp_buffer), file);
@@ -1460,7 +1647,7 @@ void check_network() {
   // nothing to do here
   // Linux will do this for you
 #endif
-  }
+	}
 }
 
 /** Perform NTP sync */
