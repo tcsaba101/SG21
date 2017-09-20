@@ -380,7 +380,7 @@ void do_setup() { //setup OsPi and OSBO
 }
 #endif
 
-void write_log(byte type, ulong curr_time);
+void write_log(byte type, ulong curr_time, ulong param);
 void schedule_all_stations(ulong curr_time);
 void turn_off_station(byte sid, ulong curr_time);
 void process_dynamic_events(ulong curr_time);
@@ -498,10 +498,12 @@ void do_loop()
       if (os.status.rain_delayed) {
         // rain delay started, record time
         os.raindelay_start_time = curr_time;
+        write_log(LOGDATA_RAINDELAY2, curr_time, 0);
         push_message(IFTTT_RAINSENSOR, LOGDATA_RAINDELAY, 1);
       } else {
         // rain delay stopped, write log
-        write_log(LOGDATA_RAINDELAY, curr_time);
+        write_log(LOGDATA_RAINDELAY, curr_time, 0);
+        write_log(LOGDATA_RAINDELAY2, curr_time, 0);
         push_message(IFTTT_RAINSENSOR, LOGDATA_RAINDELAY, 0);
       }
       os.old_status.rain_delayed = os.status.rain_delayed;
@@ -520,7 +522,7 @@ void do_loop()
           if (curr_time>os.sensor_lasttime+10) {  // add a 10 second threshold
                                                   // to avoid faulty rain sensors generating
                                                   // too many log records
-            write_log(LOGDATA_RAINSENSE, curr_time);
+            write_log(LOGDATA_RAINSENSE, curr_time, 0);
             push_message(IFTTT_RAINSENSOR, LOGDATA_RAINSENSE, 0);
           }
         }
