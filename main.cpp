@@ -34,6 +34,7 @@
 
 #include "SdFat.h"
 #include "Wire.h"
+
 byte Ethernet::buffer[ETHER_BUFFER_SIZE]; // Ethernet packet buffer
 SdFat sd;                                 // SD card object
 
@@ -89,14 +90,13 @@ SensorGroup sensors;	//SensorGroup object
 uint16_t v;	// current measurement variables
 byte today;
 bool new_day=0;
-//Those will be deleted later or declared in Sensor module once added
-ulong flow_count, flow_last_gpm;
 
 //LCD display multiplexing
 ulong disp_cnt;
-bool test_on = true;
-#define SHOW_TIME 2000		//show time msec
-#define SHOW_TEST 4000		//show test
+bool sensor_display = true;
+#define SHOW_TIME 2000	  	//show time msec
+#define SHOW_SENSOR 4000		//show sensors on LCD
+#define SHOW_PULSES 1       //show flow pulses in 2nd LCD line, comment it out if not wanted
 
 //Cloud sync variables
 char client_pw[] = "OsClientTCS\0";
@@ -384,7 +384,6 @@ void write_log(byte type, ulong curr_time, ulong param);
 void schedule_all_stations(ulong curr_time);
 void turn_off_station(byte sid, ulong curr_time);
 void process_dynamic_events(ulong curr_time);
-void check_network();
 void check_weather();
 void perform_ntp_sync();
 void delete_log(char *name);
@@ -477,10 +476,6 @@ void do_loop()
 		if (curr_time % NTP_SYNC_INTERVAL == 0) os.status.req_ntpsync = 1;
 		perform_ntp_sync();
     
-#if defined(ARDUINO)
-    if (!ui_state)
-      os.lcd_print_time(os.now_tz());       // print time
-#endif
 
     // ====== Check raindelay status ======
     if (os.status.rain_delayed) {
@@ -509,26 +504,9 @@ void do_loop()
       os.old_status.rain_delayed = os.status.rain_delayed;
     }
 
-    // ====== Check rain sensor status ======
-    if (os.options[OPTION_RSENSOR_TYPE] == SENSOR_TYPE_RAIN) { // if a rain sensor is connected
-      os.rainsensor_status();
-      if (os.old_status.rain_sensed != os.status.rain_sensed) {
-        if (os.status.rain_sensed) {
-          // rain sensor on, record time
-          os.sensor_lasttime = curr_time;
-          push_message(IFTTT_RAINSENSOR, LOGDATA_RAINSENSE, 1);
-        } else {
-          // rain sensor off, write log
-          if (curr_time>os.sensor_lasttime+10) {  // add a 10 second threshold
-                                                  // to avoid faulty rain sensors generating
-                                                  // too many log records
-            write_log(LOGDATA_RAINSENSE, curr_time, 0);
-            push_message(IFTTT_RAINSENSOR, LOGDATA_RAINSENSE, 0);
-          }
-        }
-        os.old_status.rain_sensed = os.status.rain_sensed;
-      }
-    }
+	//======= check RAIN and SOIL sensors' status, and log the changes =========
+	// sensors.check_sensors(curr_time);
+	// moved to sensors.loop()
 
     // ===== Check program switch status =====
     if (os.programswitch_status(curr_time)) {
@@ -545,11 +523,9 @@ void do_loop()
     if (curr_minute != last_minute) {
       last_minute = curr_minute;
 	  
-      // ====== if a day has been changed send end of the day log if no program running =====
-
+    // ====== if a day has been changed send end of the day log if no program running =====
 	  // ====== If a program is running the final statistics and day flow will be logged on the new date.=====
-
-	  
+ 
 	  if(today != os.weekday_today()) {  //new day?
 		  if(!new_day){					//do regular new day functions here
 				os.options[OPTION_SEND_LOGFILES] = 1;  //send the previous day log again
@@ -732,15 +708,14 @@ void do_loop()
         // turn off all stations
         os.clear_all_station_bits();
         os.apply_all_station_bits();
+
+        sensors.program_stopped();
         // reset runtime
         pd.reset_runtime();
         // reset program busy bit
         os.status.program_busy = 0;
         // log flow sensor reading if flow sensor is used
         if(os.options[OPTION_FSENSOR_TYPE]==SENSOR_TYPE_FLOW) {
-			
-          sensors.program_stopped();
-		  
 /*          push_message(IFTTT_FLOWSENSOR, (flow_count>os.flowcount_log_start)?(flow_count-os.flowcount_log_start):0);
 */       }
 
@@ -824,6 +799,71 @@ void do_loop()
     // process LCD display
     if (!ui_state)
       os.lcd_print_station(1, ui_anim_chars[curr_time%3]);
+
+    // if no sensor attached no need to display.
+    if(OPTION_FSENSOR_TYPE == SENSOR_TYPE_NONE && OPTION_CURRENT == SENSOR_TYPE_NONE)
+      sensor_display = false;
+
+	// SG sensor data multiplexing on LCD
+	if(!sensor_display){
+		if(disp_cnt <= millis()) {
+			sensor_display = true;
+			disp_cnt = millis() + SHOW_SENSOR;
+	    }
+		if (!ui_state)
+			os.lcd_print_time(os.now_tz());       // print time
+	}
+	else
+	   {
+		// print actual flow impulses
+    #if defined(SHOW_PULSES)
+		os.lcd.setCursor(0, 1);
+		os.lcd.print(sensors.last_sensor_impulses);
+		os.lcd_print_pgm(PSTR("i "));
+		#endif
+
+		// print actual gallon, flow, current
+		
+		os.lcd.setCursor(0, 0);
+		if(os.options[OPTION_FLOWUNIT_GAL]){
+			os.lcd_print_pgm(PSTR("   G   gpm    mA"));    
+			os.lcd.setCursor(0, 0);
+			os.lcd.print(sensors.realtime_gallons);
+			os.lcd.setCursor(5, 0);
+			os.lcd.print(sensors.realtime_GPM);
+		}
+		else{
+			os.lcd_print_pgm(PSTR("   l   lpm    mA"));    
+			os.lcd.setCursor(0, 0);
+			os.lcd.print((int)(sensors.realtime_gallons * 3.7854));
+			os.lcd.setCursor(5, 0);
+			os.lcd.print((int)(sensors.realtime_GPM * 3.7854));
+		}
+		
+		os.lcd.setCursor(11, 0);
+		os.lcd.print(os.read_current());
+		
+		/* print actual current input ADC voltage reading
+		os.lcd.setCursor(12, 0);
+		os.lcd.print((uint16_t) (v * 2.5));*/
+
+		/*print inputs level		
+		os.lcd.setCursor(0, 0);
+		if(digitalRead(PIN_FLOWSENSOR) == 1) os.lcd_print_pgm(PSTR("1"));
+		else os.lcd_print_pgm(PSTR("0"));
+		if(digitalRead(PIN_SOILSENSOR) == 1) os.lcd_print_pgm(PSTR("1"));
+		else os.lcd_print_pgm(PSTR("0"));
+		if(digitalRead(PIN_RAINSENSOR) == 1) os.lcd_print_pgm(PSTR("1_"));
+		else os.lcd_print_pgm(PSTR("0_")); 
+		os.lcd.print(os.status.has_curr_sense);  */
+		
+		if(disp_cnt <= millis()) {
+			sensor_display = false;
+			disp_cnt = millis() + SHOW_TIME;
+		}
+	  } // end of if(sensor_display)
+
+
     
     // check safe_reboot condition
     if (os.status.safe_reboot) {
@@ -932,16 +972,36 @@ void turn_off_station(byte sid, ulong curr_time) {
  * and turn off stations accordingly
  */
 void process_dynamic_events(ulong curr_time) {
-  // check if rain is detected
-  bool rain = false;
+  bool rain = false, soil1_wet = false, soil2_wet = false;
   bool en = os.status.enabled ? true : false;
-  if (os.status.rain_delayed || (os.status.rain_sensed && os.options[OPTION_FSENSOR_TYPE] == SENSOR_TYPE_RAIN)) {
+  bool fatal_closeout = false;
+
+  // check if rain is detected  
+  if (os.status.rain_delayed || (os.status.rain_sensed && (os.options[OPTION_RSENSOR_TYPE] == SENSOR_TYPE_RAIN))) {
     rain = true;
   }
-
-  byte sid, s, bid, qid, rbits;
+  
+  //check soil sensors disable irrigation?
+  if ( (os.status.dry_soil_1 == 0) && (os.old_status.dry_soil_1 == 0) && (os.options[OPTION_SSENSOR_1] != SENSOR_TYPE_NONE)) {
+    soil1_wet = true;
+  }
+  if ( (os.status.dry_soil_2 == 0) && (os.old_status.dry_soil_2 == 0) && (os.options[OPTION_SSENSOR_2] != SENSOR_TYPE_NONE)) {
+    soil2_wet = true;
+  }
+  
+  //is fatal flow disable function enabled?
+  if(os.options[OPTION_FATAL_ALARM] && os.options[OPTION_FSENSOR_TYPE]){
+	  fatal_closeout = true;
+  }
+  
+  
+  byte sid, s, bid, qid, rbits, sbits1, sbits2, fatal_bits;
   for(bid=0;bid<os.nboards;bid++) {
-    rbits = os.station_attrib_bits_read(ADDR_NVM_IGNRAIN+bid);
+    rbits = os.station_attrib_bits_read(ADDR_NVM_IGNRAIN+bid); //ignore rain byte of the current board
+/*	*/
+	sbits1 = os.station_attrib_bits_read(ADDR_NVM_SSENSOR_1+bid);	//attached soil1 byte of the current board
+	sbits2 = os.station_attrib_bits_read(ADDR_NVM_SSENSOR_2+bid);	//attached soil2 byte of the current board
+	fatal_bits = os.station_attrib_bits_read(ADDR_NVM_ALARM_FATAL+bid);
     for(s=0;s<8;s++) {
       sid=bid*8+s;
 
@@ -955,9 +1015,21 @@ void process_dynamic_events(ulong curr_time) {
       qid = pd.station_qid[sid];
       if(qid==255) continue;
       RuntimeQueueStruct *q = pd.queue + qid;
-
-      if ((q->pid<99) && (!en || (rain && !(rbits&(1<<s)))) ) {
+	  
+		// en:controller enabled
+		// fatal flow error recorded
+		// soil is wet and station soil sensor is not disabled
+		// rain: rain sensor active, rbits = 1 if ignore rain checked at station
+      if ((q->pid<99) && (!en || 
+/**/		(fatal_closeout && fatal_bits&(1<<s))	|| 
+			(soil1_wet && sbits1&(1<<s))			|| 
+			(soil2_wet && sbits2&(1<<s))			||  
+			(rain && !(rbits&(1<<s))) )	) { 
         turn_off_station(sid, curr_time);
+		if(fatal_closeout && fatal_bits&(1<<s)) write_log(LOGDATA_FATAL_STATION_CANCEL, curr_time, sid);
+		if(soil1_wet && sbits1&(1<<s)) write_log(LOGDATA_SOIL1_STATION_CANCEL, curr_time, sid);
+		if(soil2_wet && sbits2&(1<<s)) write_log(LOGDATA_SOIL2_STATION_CANCEL, curr_time, sid);
+		if(rain && !(rbits&(1<<s))) write_log(LOGDATA_RAIN_STATION_CANCEL, curr_time, sid);
       }
     }
   }
