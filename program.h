@@ -83,6 +83,17 @@ public:
 
   // misc. data
   byte dummy1: 1;
+
+  // does the program disabled by wet soil?
+  // 0: no
+  // 1: yes, sensor_1
+  // 2, yes, sensor_2
+  // 3: yes, both
+  byte attach_soil_sensor_1: 1;
+  byte attach_soil_sensor_2: 1;
+
+  // misc. data
+  byte dummy2: 6;
   
   // weekly:   days[0][0..6] correspond to Monday till Sunday
   // bi-weekly:days[0][0..6] and [1][0..6] store two weeks
@@ -111,6 +122,7 @@ public:
 
   byte check_match(time_t t);
   int16_t starttime_decode(int16_t t);  
+
 protected:
   byte check_day_match(time_t t);
 
