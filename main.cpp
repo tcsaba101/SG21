@@ -1400,7 +1400,7 @@ void cloud_json_stations_attrib(const char* name, int addr, char* postval_pt)
   for(byte i=0;i<os.nboards;i++) {
 	  itoa(attrib[i], tmp_buffer, 10);
 	  strcat(postval_pt, tmp_buffer);
-    if(i!=os.nboards-1)
+      if(i!=os.nboards-1)
  	   strcat_P(postval_pt, PSTR(","));
     }
 	strcat_P(postval_pt, PSTR("],"));
@@ -1445,7 +1445,7 @@ const char cloud_message_id[] PROGMEM =
 
 #if !defined(ARDUINO) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
 
-DEBUG_PRINT("freeRam11: ");
+DEBUG_PRINT("freeRam1: ");
 DEBUG_PRINTLN(freeRam());
 
 	if(os.status.network_fails != 0) return 4; //do not post if network failed
@@ -1634,7 +1634,7 @@ DEBUG_PRINTLN(freeRam());
 				itoa( os.hw_type, tmp_buffer, 10);
 				strcat(postval, tmp_buffer);
 				
-				//append alm_cnt alarm counter
+				//TODO: append alm_cnt alarm counter
 				
 				strcat_P(postval,PSTR("}"));
 		}

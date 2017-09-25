@@ -1473,7 +1473,7 @@ void OpenSprinkler::options_setup() {
 	lcd.print(" Hw:");
 	lcd.print(OS_SGHW_VERSION);
 	lcd.setCursor(0, 1);
-	lcd.print("Base OSFw:v217");
+	lcd.print("Based v217 Nov07"); //Nov. 07, 2016
 	
 	// Original OS starting LCD screen
 /*    lcd_print_line_clear_pgm(PSTR(" OpenSprinkler"),0);

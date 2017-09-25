@@ -32,7 +32,7 @@
 #endif
 
 /** Firmware version, hardware version, and maximal values */
-#define OS_FW_VERSION  217  // Firmware version: 217 means 2.1.7
+#define OS_FW_VERSION  217  // Firmware version: 217 means 2.1.7 
                             // if this number is different from the one stored in non-volatile memory
                             // a device reset will be automatically triggered
 
@@ -40,7 +40,7 @@
 
 // SMART GREEN version identifier
 #define OS_SGHW_VERSION		20	// SB2 sensor attachment: ACS712 current, inputs: 2 soil, 1 flow, 1 rain + program switch
-#define OS_SGFW_VERSION 	21	// SG Firmware version
+#define OS_SGFW_VERSION 	21	// SG Firmware version: originated from v217 Nov. 07, 2016
 
 #if defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1284__)
 /*

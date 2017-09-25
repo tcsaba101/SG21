@@ -41,7 +41,7 @@ extern const char wtopts_filename[];
 extern OpenSprinkler os; // OpenSprinkler object
 extern char tmp_buffer[];
 byte findKeyVal (const char *str,char *strbuf, uint8_t maxlen,const char *key,bool key_in_pgm=false,uint8_t *keyfound=NULL);
-void write_log(byte type, ulong curr_time);
+void write_log(byte type, ulong curr_time, ulong param);
 
 // The weather function calls getweather.py on remote server to retrieve weather data
 // the default script is WEATHER_SCRIPT_HOST/weather?.py
@@ -119,7 +119,7 @@ static void getweather_callback(byte status, uint16_t off, uint16_t len) {
   }
 
   os.checkwt_success_lasttime = os.now_tz();
-  write_log(LOGDATA_WATERLEVEL, os.checkwt_success_lasttime);
+  write_log(LOGDATA_WATERLEVEL, os.checkwt_success_lasttime, 0);
 }
 
 #if defined(ARDUINO)  // for AVR
