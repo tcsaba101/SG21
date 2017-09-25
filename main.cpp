@@ -477,7 +477,7 @@ void do_loop()
 		perform_ntp_sync();
     
 
-//refresh cloud data
+//refresh cloud data depending on refresh cycle
 	if(curr_time && (curr_time - last_cloud_refresh >= cloud_refresh_period)) {
 		send_post=true;
 		last_cloud_refresh = curr_time;
@@ -1382,6 +1382,7 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
 #endif
 }
 
+
 //***********************************************
 //****** CLOUD communication 
 //***********************************************
@@ -1409,16 +1410,18 @@ void cloud_json_stations_attrib(const char* name, int addr, char* postval_pt)
 
 byte push_message_cloud(byte type, ulong day) {
 
-/********* PARAMETERS
-Type: kind of packet sending
+/*
+******** PARAMETERS
+type: kind of packet sending
 day:	SEND_CLOUD_LOG : if day==0:today, if 367>day>0 last days history if day > 366 the filename (unix day)
 
 
-/***********  EXAMPLES
+*****************  EXAMPLES
 
 cloud server messages
 push_message_cloud(SEND_CLOUD_OPTIONS, 0); //Send options to cloud server
-/** Cloud Message Type *
+
+************** Cloud Message Type *
 #define SEND_CLOUD_OPTIONS		0
 #define SEND_CLOUD_SETTINGS		1
 #define SEND_CLOUD_PROGRAMS		2
