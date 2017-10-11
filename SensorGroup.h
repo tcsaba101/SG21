@@ -13,6 +13,8 @@
 	#define	FLOW_SENSOR_DEBOUNCE		10		// the debounce time of the flow sensor in milliseconds
 	#define FLOW_TIMEOUT				5000	// the timeout of the flow sensor in milliseconds
 												// if no pulse arrives in this time window, we say that we have no flow 
+	#define NOISE_IMPULSES				3		// under this number of impulses / NOISE_INTERVAL we treat as noise sensing at freeflow mode
+	#define NOISE_INTERVAL				60		// noise detecting interval
 	#define SETTLING_UP					7		// the flow build up interval second
 	#define SETTLING_DOWN				6		// the flow settle down to zero interval second
 	#define FLOWSENSOR_TYPE_SEL			15		// if PULSE_RANGE > value, the flow is sensed by hall effect sensor, no debounce needed = 0 
@@ -46,7 +48,8 @@ typedef enum {
 	STCURRENT_ALARM,	//7
 	PROGRAM_HOLD,		//8
 	PROG_FINISH,		//9
-	FAILED_STATE		//10
+	FAILED_STATE,		//10
+	NOISE_FILTER		//11
 
 }FL_STATES;
 
@@ -66,7 +69,10 @@ typedef enum {
 	OUT_OF_RANGE_LOWFLOW,	//11
 	FATAL_FLOW_ALARM,		//12
 	PROG_QUE_EMPTY,			//13
-	FAILED_STATE_EVENT		//14
+	FAILED_STATE_EVENT,		//14
+	PULSE_TIMEOUT2,			//15
+	PULSE_TRESH				//16
+	
 }FL_EVENTS;
 
 
@@ -126,7 +132,7 @@ public:
 
 	//measure
 	// measure_window_start			
-	// measure_start_imp		the measure window entering impulse data
+	// measure_start_imp		    the measure window entering impulse data
 	// prog_start_time				when the actual flow has been initiated, in a program or freeflow
 	// station_start_time			the time the state started (e. g.: station or freeflow)
 	// sec_timer, msec_timer		timers
@@ -155,6 +161,7 @@ public:
 	
 	static void program_stopped();
 	static void day_flow_calc(ulong curr_time);
+	static void day_flow_sum();
 
 	// enable or disable calibration on a station
 	static void set_calibration_for_station(byte sid, bool flow_enable_calibration, bool current_enable_calibration);

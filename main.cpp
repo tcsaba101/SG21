@@ -341,7 +341,7 @@ void do_setup() {
   today = os.weekday_today(); //@tcs: set today weekday
 
 	#if defined(SERIAL_DEBUG)  
-     print_today_log(0);  //@tcs: give how many days' log records want to be listed at reset
+     print_today_log(5);  //@tcs: give how many days' log records want to be listed at reset
   #endif
 }//end of do_setup()
 
@@ -569,12 +569,13 @@ void do_loop()
 		  if(!new_day){					//do regular new day functions here
 				os.options[OPTION_SEND_LOGFILES] = 1;  //send the previous day log again
 		  		log_rec_counter = 0;
-				sensors.alarm_cnt = 0;
+				sensors.alarm_cnt = 0; 
 				new_day = true;
+				//TODO: create log on daily admin data: log_rec, alarm counter, etc.
 		  }
 	  
 		  if(!os.status.program_busy) {    //if program running we wait till finish to save the program and daily flow
-			sensors.day_flow_calc(curr_time);	// logs all day flow log
+			sensors.day_flow_calc(curr_time);	// save and logs last day flow
 			today = os.weekday_today();			//set today identifier
 			new_day = false;									
 			}

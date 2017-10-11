@@ -70,7 +70,7 @@
 #define IFTTT_KEY_FILENAME "ifkey.txt"
 #define IFTTT_KEY_MAXSIZE   128
 
-#define FLOWCOUNT_RT_WINDOW   15    // flow count window (for computing real-time flow rate), 30 seconds
+#define FLOWCOUNT_RT_WINDOW   30    // flow count window (for computing real-time flow rate), 30 seconds
 
 /** Station type macro defines */
 #define STN_TYPE_STANDARD    0x00
@@ -329,8 +329,6 @@ NUM_OPTIONS	// total number of options
 #define LOGDATA_DAYFLOW					0x08
 #define LOGDATA_CALIBRATED				0x09  // a zone has been calibrated
 
-#define LOGDATA_FREEFLOW_END			0x0A  // freeflow ended
-
 // soil log options
 #define LOGDATA_SOIL1					0x30
 #define LOGDATA_SOIL2					0x31
@@ -344,11 +342,17 @@ NUM_OPTIONS	// total number of options
 #define LOGDATA_RAIN_STATION_CANCEL		0x37
 
 // alert log data types
-#define LOGDATA_ALARM_FLOW_STOPPED		0x10
-#define LOGDATA_ALARM_FF_QUANTITY		0x11
-#define LOGDATA_ALARM_FF_TIME			0x12
-#define LOGDATA_ALARM_LEAKAGE_START		0x13
-#define LOGDATA_ALARM_LEAKAGE_END		0x14
+#define LOGDATA_ALARM_FLOW_STOPPED		0x10	// when flow stopped before watering program ended
+
+//Log freeflow enabled
+#define LOGDATA_FREEFLOW_END			0x0A	// when no issue detected
+#define LOGDATA_ALARM_FF_QUANTITY		0x11	// overrun the preprogrammed freeflow quantity
+#define LOGDATA_ALARM_FF_TIME			0x12	// overrun the preprogrammed freeflow time
+
+//Log freeflow disabled
+#define LOGDATA_ALARM_LEAKAGE_START		0x13	// flow on mainline when no program started
+#define LOGDATA_ALARM_LEAKAGE_END		0x14	
+
 //flow alarms
 #define LOGDATA_ALARM_FLOW_HIGH			0x15
 #define LOGDATA_ALARM_FLOW_LOW			0x16

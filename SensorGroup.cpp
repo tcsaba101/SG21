@@ -150,7 +150,7 @@ void SensorGroup::init() {
 
 	DEBUG_PRINTLN("SensorGroup init starting...");
 
-	ulong curr_time = os.now_tz();
+	ulong curr_time = os.now_tz();  //time in seconds
 	SensorGroup::init_prog_count(curr_time); // init FSM and flow counter
 	
 	// setting the impulse/gallon or impulse/liter value
@@ -326,7 +326,7 @@ void read_station_data(byte sid){ //reads exclude, remote flags, station refs,
 	//SensorGroup::flow_refval = SensorGroup::flow_refval >> 3;
 }
 
-void SensorGroup::init_prog_count(ulong curr_time){ //at each program start, and freeflow start
+void SensorGroup::init_prog_count(ulong curr_time){ //at each program start, and freeflow start param: seconds
 	//initialize flow sensor reading
 	SensorGroup::sensor_impulses = 0;
 	SensorGroup::last_sensor_impulses = 0;
@@ -433,6 +433,9 @@ void SensorGroup::change_state(byte chg_state, ulong curr_time_s){
 	case NO_FLOW:			// Initial state, no flow detected
 		SensorGroup::window_impulses = 0;
 		break;
+	case NOISE_FILTER:
+		SensorGroup::sec_timer = curr_time_s;
+		break;	
 	case LEAKAGE_FLOW:		//Flow detected when no Station runs and Freeflow disabled
 		SensorGroup::init_station_count(curr_time_s);
 		SensorGroup::alert(LOGDATA_ALARM_LEAKAGE_START, curr_time_s);
@@ -510,7 +513,10 @@ void SensorGroup::flow_loop(ulong current_time_s){
 	DEBUG_PRINT(" / ");
 	DEBUG_PRINTLN(prog_finished);
 */	
-	if((SensorGroup::current_state != NO_FLOW)  && !stat_stopped && !prog_finished)	{  //&& (SensorGroup::current_state != PROGRAM_HOLD)
+	if((SensorGroup::current_state != NO_FLOW)  && !stat_stopped && !prog_finished ||
+		SensorGroup::current_state == NOISE_FILTER ||
+		SensorGroup::current_state == FREE_FLOW ||
+		SensorGroup::current_state == LEAKAGE_FLOW)	{
 		if(current_time_s > (SensorGroup::measure_window_start + FLOWCOUNT_RT_WINDOW)){  //realtime measurement
 			SensorGroup::window_impulses = SensorGroup::last_sensor_impulses - SensorGroup::measure_start_imp;
 			SensorGroup::realtime_GPM = (SensorGroup::last_sensor_impulses - SensorGroup::measure_start_imp)
@@ -518,7 +524,7 @@ void SensorGroup::flow_loop(ulong current_time_s){
 			SensorGroup::measure_window_start = current_time_s;
 			SensorGroup::measure_start_imp = SensorGroup::last_sensor_impulses;
 			SensorGroup::flow_valid_flag = 1;
-			}
+		}
 		else 
 			if(!flow_valid_flag && ((SensorGroup::last_sensor_impulses - SensorGroup::measure_start_imp) > 4) && 
 			realtime_GPM < 0.1 ){
@@ -700,24 +706,11 @@ void SensorGroup::flow_loop(ulong current_time_s){
 	case PROG_FINISH:	
 		if(SensorGroup::sec_timer + SETTLING_DOWN < current_time_s){		//Event: settling timeout ended
 			SensorGroup::event = SETTLE_TIMEOUT;
+			day_flow_sum();
+
+			// write classic log and new event log records to SD card
 			write_log(LOGDATA_PROGFLOW, current_time_s, 0);
 			write_log(LOGDATA_PROGFLOW2, current_time_s, 0);
-			
-			day_impulses = (os.station_attrib_bits_read(ADDR_NVM_IMPULSES + 3 ) << 8) +
-						os.station_attrib_bits_read(ADDR_NVM_IMPULSES + 2 );
-			SensorGroup::day_impulses += SensorGroup::prog_impulses;
-			uint16_t f = (uint16_t)(day_impulses);
-			byte v = f & 0xFF;
-			nvm_write_byte((byte*)(ADDR_NVM_IMPULSES + 2), v ); //save low byte
-			v = (f >> 8) & 0xFF;  //  shift the high byte
-			nvm_write_byte( (byte*)(ADDR_NVM_IMPULSES + 3), v ); //save high byte
-			
-			SensorGroup::last_prog_impulses = SensorGroup::prog_impulses;
-			f = (uint16_t)(last_prog_impulses);
-			v = f & 0xFF;
-			nvm_write_byte((byte*)(ADDR_NVM_IMPULSES ), v ); //save low byte
-			v = (f >> 8) & 0xFF;  //  shift the high byte
-			nvm_write_byte( (byte*)(ADDR_NVM_IMPULSES + 1), v ); //save high byte
 						
 /*			DEBUG_PRINT("prog  / last_prog / day_imp:  ");
 			DEBUG_PRINT(SensorGroup::prog_impulses);
@@ -752,16 +745,41 @@ void SensorGroup::flow_loop(ulong current_time_s){
 			DEBUG_PRINT(SensorGroup::old_sensor_impulses);
 			DEBUG_PRINT(" / ");
 			DEBUG_PRINTLN(SensorGroup::last_sensor_impulses);
-
+			
+			ulong v = last_sensor_impulses;
+			init_prog_count(current_time_s);
+			init_station_count(current_time_s);
+			last_sensor_impulses = v;
 			SensorGroup::event = IMPULSES_STARTED;
-//			init_prog_count(current_time_s);
-			if (os.status.program_busy) {
-				next_state = STATION_START;
-				}
-			else {
+			next_state = NOISE_FILTER;
+			
+		}
+		break;
+		
+	case NOISE_FILTER:
+		if(stat_started){
+			SensorGroup::stat_started = false;
+			SensorGroup::event = STATION_STARTED;
+			init_prog_count(current_time_s);
+			next_state = STATION_START;
+			break;
+		}
+		if(stat_stopped){
+			SensorGroup::stat_stopped = false;
+			SensorGroup::event = STATION_STOPPED;
+			next_state = PROGRAM_HOLD;			
+			break;
+		}
+		if(SensorGroup::sec_timer + NOISE_INTERVAL < current_time_s){	
+			if(last_sensor_impulses >= NOISE_IMPULSES){
+				SensorGroup::event = PULSE_TRESH;
 				if(os.options[OPTION_FLOW_ALARM] == 2) next_state = FREE_FLOW;
 				else next_state = LEAKAGE_FLOW;
-				}
+			}
+			else{
+				SensorGroup::event = PULSE_TIMEOUT2;
+				next_state = NO_FLOW;				
+			}
 		}
 		break;
 		
@@ -775,6 +793,7 @@ void SensorGroup::flow_loop(ulong current_time_s){
 		if(stat_started){
 			stat_started = false;
 			SensorGroup::event = STATION_STARTED;
+			day_flow_sum();
 			write_log(LOGDATA_FREEFLOW_END, current_time_s, 0);				
 			init_prog_count(current_time_s);
 			next_state = STATION_START;
@@ -782,6 +801,7 @@ void SensorGroup::flow_loop(ulong current_time_s){
 			}
 		if(flow_timeout(curr_time_ms)){
 			SensorGroup::event = IMPULSES_TIMEOUT;
+			day_flow_sum();
 			write_log(LOGDATA_FREEFLOW_END, current_time_s, 0);
 			next_state = NO_FLOW;
 			break;
@@ -789,24 +809,25 @@ void SensorGroup::flow_loop(ulong current_time_s){
 		if(os.options[OPTION_FLOW_ALARM] == 2 && SensorGroup::flow_valid_flag ){		
 			if(((current_time_s - SensorGroup::prog_start_time) / 60) > os.options[OPTION_FREEFLOW_TIME]){
 			//Freeflow timeout alarm
-				SensorGroup::event = FREEFLOW_TIME_ALARM;		
+				day_flow_sum();		
+				SensorGroup::event = FREEFLOW_TIME_ALARM;
 				SensorGroup::alert(LOGDATA_ALARM_FF_TIME, current_time_s);
 				next_state = NO_FLOW;
 			} 
 			else if((SensorGroup::prog_impulses / SensorGroup::flow_pulse_rate_IpG) > os.options[OPTION_FREEFLOW_QUANTITY] ){  //Freeflow max flow alarm
-					SensorGroup::event = FREEFLOW_QUANTITY_ALARM;
+				day_flow_sum();		
+				SensorGroup::event = FREEFLOW_QUANTITY_ALARM;
 									
-/*						DEBUG_PRINT(" prog_start_time , current_time_s:  ");
-						DEBUG_PRINT(prog_start_time);
-						DEBUG_PRINT(" , ");
-						DEBUG_PRINTLN(current_time_s);
-*/										
-					SensorGroup::alert(LOGDATA_ALARM_FF_QUANTITY, current_time_s);
-					next_state = NO_FLOW;
-					}
+	/*				DEBUG_PRINT(" prog_start_time , current_time_s:  ");
+					DEBUG_PRINT(prog_start_time);
+					DEBUG_PRINT(" , ");
+					DEBUG_PRINTLN(current_time_s);
+	*/										
+				SensorGroup::alert(LOGDATA_ALARM_FF_QUANTITY, current_time_s);
+				next_state = NO_FLOW;
+			}
 		}
 		break;
-		
 	case LEAKAGE_FLOW:
 		if(stat_stopped){
 			SensorGroup::stat_stopped = false;
@@ -817,6 +838,7 @@ void SensorGroup::flow_loop(ulong current_time_s){
 		if(stat_started){
 			stat_started = false;
 			SensorGroup::event = STATION_STARTED;
+			day_flow_sum();		
 			write_log(LOGDATA_ALARM_LEAKAGE_END, current_time_s, 0);
 			init_prog_count(current_time_s);
 			next_state = STATION_START;
@@ -824,6 +846,7 @@ void SensorGroup::flow_loop(ulong current_time_s){
 			}
 		if(flow_timeout(curr_time_ms)){
 			SensorGroup::event = IMPULSES_TIMEOUT;
+			day_flow_sum();		
 			SensorGroup::alert(LOGDATA_ALARM_LEAKAGE_END, current_time_s);
 			next_state = NO_FLOW;
 			}
@@ -926,20 +949,43 @@ void SensorGroup::flow_loop(ulong current_time_s){
 
 }//End of flow_loop()
 
+void SensorGroup::day_flow_sum(){
+	
+	//Adding prog impulses to daily impulses
+	day_impulses = (os.station_attrib_bits_read(ADDR_NVM_IMPULSES + 3 ) << 8) +
+				os.station_attrib_bits_read(ADDR_NVM_IMPULSES + 2 );
+	SensorGroup::day_impulses += SensorGroup::prog_impulses;
+	uint16_t f = (uint16_t)(day_impulses);
+	byte v = f & 0xFF;
+	nvm_write_byte((byte*)(ADDR_NVM_IMPULSES + 2), v ); //save low byte
+	v = (f >> 8) & 0xFF;  //  shift the high byte
+	nvm_write_byte( (byte*)(ADDR_NVM_IMPULSES + 3), v ); //save high byte
+			
+	SensorGroup::last_prog_impulses = SensorGroup::prog_impulses;
+	f = (uint16_t)(last_prog_impulses);
+	v = f & 0xFF;
+	nvm_write_byte((byte*)(ADDR_NVM_IMPULSES ), v ); //save low byte
+	v = (f >> 8) & 0xFF;  //  shift the high byte
+	nvm_write_byte( (byte*)(ADDR_NVM_IMPULSES + 1), v ); //save high byte
+}
+
 void SensorGroup::day_flow_calc(ulong curr_time){
+	
+	//Saving last day impulses
 	day_impulses = (os.station_attrib_bits_read(ADDR_NVM_IMPULSES + 3 ) << 8) +
 				os.station_attrib_bits_read(ADDR_NVM_IMPULSES + 2 );
 	write_log(LOGDATA_DAYFLOW, curr_time, 0);
 	
+	//save last day impulses
 	last_day_impulses = day_impulses;
 	uint16_t f = (uint16_t)(last_day_impulses);
 	byte v = f & 0xFF;
 	nvm_write_byte((byte*)(ADDR_NVM_IMPULSES + 4), v ); //save low byte
 	v = (f >> 8) & 0xFF;  //  shift the high byte
 	nvm_write_byte( (byte*)(ADDR_NVM_IMPULSES + 5), v ); //save high byte
-	
+
+	//initialize day impulses
 	day_impulses =0;
-	
 	nvm_write_byte((byte*)(ADDR_NVM_IMPULSES + 2), 0 ); //save low byte
 	v = (f >> 8) & 0xFF;  //  shift the high byte
 	nvm_write_byte( (byte*)(ADDR_NVM_IMPULSES + 3), 0 ); //save high byte
