@@ -1,0 +1,33 @@
+{
+  "configurations": [
+    {
+      "name": "Visual Micro",
+      "intelliSenseMode": "msvc-x64",
+      "includePath": [
+        "d:\\Program Files\\Arduino\\hardware\\arduino\\avr\\libraries\\Wire\\src",
+        "d:\\Users\\pbecc\\OneDrive\\Arduino\\libraries\\SdFat\\src",
+        "d:\\Program Files\\Arduino\\hardware\\arduino\\avr\\libraries\\SPI\\src",
+        "d:\\Program Files\\Arduino\\libraries",
+        "d:\\Program Files\\Arduino\\hardware\\arduino\\avr\\libraries",
+        "d:\\Users\\pbecc\\OneDrive\\Arduino\\libraries",
+        "d:\\Program Files\\Arduino\\hardware\\arduino\\avr\\cores\\arduino",
+        "d:\\Program Files\\Arduino\\hardware\\arduino\\avr\\variants\\mega",
+        "${projectRoot}..\\SG21",
+        "d:\\Program Files\\Arduino\\hardware\\tools\\avr\\avr\\include\\",
+        "d:\\Program Files\\Arduino\\hardware\\tools\\avr\\avr\\include\\avr\\",
+        "d:\\Program Files\\Arduino\\hardware\\tools\\avr\\lib\\gcc\\avr\\4.8.1\\include",
+        "d:\\Program Files\\Arduino\\hardware\\tools\\avr\\lib\\gcc\\avr\\4.9.2\\include",
+        "d:\\Program Files\\Arduino\\hardware\\tools\\avr\\lib\\gcc\\avr\\4.9.3\\include"
+      ],
+      "defines": [
+        "__AVR_ATmega2560__",
+        "F_CPU=16000000L",
+        "ARDUINO=10804",
+        "ARDUINO_AVR_MEGA2560",
+        "ARDUINO_ARCH_AVR",
+        "__cplusplus=201103L",
+        "_VMICRO_INTELLISENSE"
+      ]
+    }
+  ]
+}
