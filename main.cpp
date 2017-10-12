@@ -1010,7 +1010,7 @@ void turn_off_station(byte sid, ulong curr_time) {
  */
 void process_dynamic_events(ulong curr_time) {
   bool rain = false, soil1_wet = false, soil2_wet = false;
-  bool en = os.status.enabled ? true : false;
+   bool en = os.status.enabled ? true : false;
   bool fatal_closeout = false;
 
   // check if rain is detected  
