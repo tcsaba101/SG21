@@ -21,7 +21,7 @@
  * <http://www.gnu.org/licenses/>. 
  */
  
-#include <OpenSprinkler.h>
+#include "OpenSprinkler.h"
 
 extern OpenSprinkler os;
 

@@ -1532,7 +1532,7 @@ URLHandler urls[] = {
   server_delete_program,  // dp
   server_change_program,  // cp
   server_change_runonce,  // cr
-  server_manual_program,  // mp  
+   server_manual_program,  // mp  
   server_moveup_program,  // up
   server_json_programs,   // jp
   server_change_options,  // co

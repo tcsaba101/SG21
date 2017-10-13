@@ -1195,6 +1195,7 @@ void httpget_callback(byte status, uint16_t off, uint16_t len) {
  * The remote controller is assumed to have the same
  * password as the main controller
  */
+
 void OpenSprinkler::switch_remotestation(RemoteStationData *data, bool turnon) {
 #if defined(ARDUINO)
   // construct string
