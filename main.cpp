@@ -1390,10 +1390,12 @@ void push_message(byte type, uint32_t lval, float fval, const char* sval) {
 
 void cloud_json_stations_attrib(const char* name, int addr, char* postval_pt)
 {
-  DEBUG_PRINTLN(String("NAME:  ")+ String(name));
+  DEBUG_PRINT(String("NAME:  "));
+  strcpy_P(tmp_buffer, (PGM_P)name);
+  DEBUG_PRINTLN(tmp_buffer);
 	
   strcat_P(postval_pt, PSTR("\""));
-  strcpy(tmp_buffer, name);
+  strcpy_P(tmp_buffer, (PGM_P)name);
   strcat(postval_pt, tmp_buffer);
   strcat_P(postval_pt, PSTR("\":["));
   
@@ -1503,7 +1505,7 @@ DEBUG_PRINTLN(freeRam());
 //puts the password and the MAC adress
 //the password have to be scrambled (ToDo)		
 			strcat(postval,tmp_buffer);
-			sprintf(tmp_buffer, "\",\"lpw\":%s,\"macad\":\"",client_pw );
+			sprintf(tmp_buffer, "\",\"lpw\":\"%s\",\"macad\":\"",client_pw );
 			strcat(postval, tmp_buffer);
 
 			for (byte i = 0; i<6; i++) {
@@ -1783,7 +1785,36 @@ DEBUG_PRINTLN(freeRam());
 			break;
 			
 		case SEND_CLOUD_STATUS_SPEC:
-      // TODO
+      /*
+	  // Output station special attribute
+		byte server_json_station_special(char *p)
+		byte sid;
+		  byte comma=0;
+		  int stepsize=sizeof(StationSpecialData);
+		  StationSpecialData *stn = (StationSpecialData *)tmp_buffer;
+		  print_json_header();
+		  for(sid=0;sid<os.nstations;sid++) {
+			if(os.station_attrib_bits_read(ADDR_NVM_STNSPE+(sid>>3))&(1<<(sid&0x07))) {
+			  read_from_file(stns_filename, (char*)stn, stepsize, sid*stepsize);
+			  if (comma) bfill.emit_p(PSTR(","));
+			  else {comma=1;}
+			  bfill.emit_p(PSTR("\"$D\":{\"st\":$D,\"sd\":\"$S\"}"), sid, stn->type, stn->data);
+			}
+		  }
+			bfill.emit_p(PSTR("}"));
+		
+		//Output station status	
+		server_json_status_main() {
+		bfill.emit_p(PSTR("\"sn\":["));
+		  byte sid;
+
+		  for (sid=0;sid<os.nstations;sid++) {
+			bfill.emit_p(PSTR("$D"), (os.station_bits[(sid>>3)]>>(sid&0x07))&1);
+			if(sid!=os.nstations-1) bfill.emit_p(PSTR(","));
+		  }
+		  bfill.emit_p(PSTR("],\"nstations\":$D}"), os.nstations);
+	  */
+	  
 			break;
 			
 		case SEND_CLOUD_SETTINGS:   //based on server_json_controller_main() in server.cpp
@@ -1879,7 +1910,6 @@ DEBUG_PRINTLN(freeRam());
 					strcat_P(postval,PSTR("\"flcrt\":"));
 					itoa( sensors.station_impulses , tmp_buffer, 10);  
 					strcat(postval, tmp_buffer);
-					strcat_P(postval,PSTR(","));
 					strcat_P(postval,PSTR(",\"flwrt\":"));
 					itoa( FLOWCOUNT_RT_WINDOW , tmp_buffer, 10);  
 					strcat(postval, tmp_buffer);
