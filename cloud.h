@@ -6,7 +6,7 @@
 	#include "OpenSprinkler.h"
 	#include <SDFat.h>
 
-	class cloud {
+	class Cloud {
 	public:
 		//void ip2string(char * str, byte ip[4]);
 		//void push_message(byte type, uint32_t lval = 0, float fval = 0.f, const char* sval = NULL);

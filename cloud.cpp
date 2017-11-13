@@ -6,28 +6,28 @@
 #include "SensorGroup.h"
 #include "SdFat.h"
 
-SensorGroup sensors;
-SdFat sd;                   // SD card object
-ProgramData pd;				// ProgramdData object
-
+extern SensorGroup sensors;
+extern SdFat sd;                   // SD card object
+extern ProgramData pd;				// ProgramdData object
 extern EtherCard ether;
 extern OpenSprinkler os;
-extern void httget_callback(byte status, uint16_t off, uint16_t len);
-extern void make_logfile_name(char *name);
 
+extern byte buffer[ETHER_BUFFER_SIZE]; // Ethernet packet buffer
 extern char tmp_buffer[];       // scratch buffer
-extern ulong last_sent_log;
 
+extern void httpget_callback(byte status, uint16_t off, uint16_t len);
+extern void make_logfile_name(char *name);
+extern ulong last_sent_log;
 extern int freeRam();
 
-ulong millis_cnt;byte Ethernet::buffer[ETHER_BUFFER_SIZE]; // Ethernet packet buffer
+ulong millis_cnt;
 char client_pw[] = "OsClientTCS\0";
 
 //***********************************************
 //****** CLOUD communication 
 //***********************************************
 
-void cloud_json_stations_attrib(const char* name, int addr, char* postval_pt)
+void Cloud::cloud_json_stations_attrib(const char* name, int addr, char* postval_pt)
 {
   DEBUG_PRINT(String("NAME:  "));
   strcpy_P(tmp_buffer, (PGM_P)name);
@@ -50,7 +50,7 @@ void cloud_json_stations_attrib(const char* name, int addr, char* postval_pt)
 }
 
 
-byte push_message_cloud(byte type, ulong day) {
+byte Cloud::push_message_cloud(byte type, ulong day) {
 
 /*
 ******** PARAMETERS
@@ -99,6 +99,7 @@ DEBUG_PRINTLN(freeRam());
 	static char postval[POST_BUFFER_SIZE] = {'\0'}; //TMP_BUFFER_SIZE is too small!
 	char buf[] = {0,0,0,0,0,0,0,0,0,0,0,0,'\0'};
 	byte b, ret_val=0;
+	int32_t v;
 		
 DEBUG_PRINT("freeRam2: ");
 DEBUG_PRINTLN(freeRam());
@@ -229,7 +230,7 @@ DEBUG_PRINTLN(freeRam());
 					continue;
 			#endif
 				//int32_t 
-				int32_t v=os.options[oid];
+				v=os.options[oid];
 				if (oid==OPTION_MASTER_OFF_ADJ || oid==OPTION_MASTER_OFF_ADJ_2 ||
 					oid==OPTION_MASTER_ON_ADJ  || oid==OPTION_MASTER_ON_ADJ_2 ||
 					oid==OPTION_STATION_DELAY_TIME) {

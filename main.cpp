@@ -85,7 +85,7 @@ BufferFiller bfill;             // buffer filler
 OpenSprinkler os; // OpenSprinkler object
 ProgramData pd;   // ProgramdData object
 SensorGroup sensors;	//SensorGroup object
-cloud cloud;
+Cloud cloud;
 
 // @tcsaba: variables 
 uint16_t v;	// current measurement variables
@@ -482,12 +482,14 @@ void do_loop()
 		send_post=true;
 		last_cloud_refresh = curr_time;
 		}
+	DEBUG_PRINT(" /send_post: ");
+	DEBUG_PRINTLN(send_post);
 	
 	if(send_post){
-		if((last_cloud_refresh + packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_STATIONS);
-		if((last_cloud_refresh + 2*packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_SETTINGS);
-		if((last_cloud_refresh + 3*packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_OPTIONS);
-		if((last_cloud_refresh + 4*packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_PROGRAMS);
+		if((last_cloud_refresh + packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_STATIONS,0);
+		if((last_cloud_refresh + 2*packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_SETTINGS,0);
+		if((last_cloud_refresh + 3*packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_OPTIONS,0);
+		if((last_cloud_refresh + 4*packet_delay) == curr_time) cloud.push_message_cloud(SEND_CLOUD_PROGRAMS,0);
 		if((last_cloud_refresh + 5*packet_delay) == curr_time) {
 			if(os.options[OPTION_SEND_LOGFILES] && !send_history){
 				log_end =  os.now_tz() / 86400L;

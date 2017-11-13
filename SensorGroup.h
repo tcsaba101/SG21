@@ -153,10 +153,10 @@ public:
 	// initialization
 	static void init();
 
-	// runs every time a staion is activated
+	// runs every time a station is activated
 	static void station_started(byte sid);
 	
-	// runs every time a staion is deactivated
+	// runs every time a station is deactivated
 	static void station_stopped(byte sid);
 	
 	static void program_stopped();
